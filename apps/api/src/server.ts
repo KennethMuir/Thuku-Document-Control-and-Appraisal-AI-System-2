@@ -32,6 +32,15 @@ import {
 } from "./services/documentExtraction.js";
 import { calculateFieldMatch, type MatchResult, type MetadataCandidate } from "./services/metadataMatching.js";
 import {
+  normalizeText,
+  normalizeComparable,
+  containsNormalized,
+  nullableString,
+  nullableNumber,
+  nullableInteger,
+  nullablePositiveInteger,
+} from "./utils/values.js";
+import {
   RESERVED_METADATA_KEYS,
   parseReviewMetadata,
   sanitizeAdditionalMetadata,
@@ -479,109 +488,6 @@ const upload = multer({
     fileSize: 25 * 1024 * 1024,
   },
 });
-
-
-
-
-function normalizeText(
-  value: string | null | undefined
-): string {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function normalizeComparable(
-  value: string | null | undefined
-): string {
-  return normalizeText(value)
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim();
-}
-
-function containsNormalized(
-  source: string,
-  value: string | null | undefined
-): boolean {
-  const normalizedSource =
-    normalizeComparable(source);
-
-  const normalizedValue =
-    normalizeComparable(value);
-
-  if (!normalizedValue) {
-    return false;
-  }
-
-  return normalizedSource.includes(
-    normalizedValue
-  );
-}
-
-function nullableString(
-  value: unknown
-): string | null {
-  if (
-    value === null ||
-    value === undefined
-  ) {
-    return null;
-  }
-
-  const normalized = String(value).trim();
-
-  return normalized || null;
-}
-
-function nullableNumber(
-  value: unknown
-): number | null {
-  if (
-    value === null ||
-    value === undefined ||
-    value === ""
-  ) {
-    return null;
-  }
-
-  const number = Number(value);
-
-  return Number.isFinite(number)
-    ? number
-    : null;
-}
-
-function nullableInteger(
-  value: unknown
-): number | null {
-  const number = nullableNumber(value);
-
-  if (
-    number === null ||
-    !Number.isInteger(number)
-  ) {
-    return null;
-  }
-
-  return number;
-}
-
-function nullablePositiveInteger(
-  value: unknown
-): number | null {
-  const number =
-    nullableInteger(value);
-
-  if (
-    number === null ||
-    number <= 0
-  ) {
-    return null;
-  }
-
-  return number;
-}
 
 
 
@@ -5202,6 +5108,7 @@ app.listen(
     );
   }
 );
+
 
 
 
