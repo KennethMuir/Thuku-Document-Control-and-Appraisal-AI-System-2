@@ -64,6 +64,7 @@ import { createUsersRouter } from "./routes/users.js";
 import { createDepartmentsRouter } from "./routes/departments.js";
 import { createDocumentTypesRouter } from "./routes/documentTypes.js";
 import { createSearchRouter } from "./routes/search.js";
+import { createHealthRouter } from "./routes/health.js";
 
 app.use("/api/auth", createAuthRouter(pool));
 app.use("/api/users", createUsersRouter(pool));
@@ -80,6 +81,7 @@ app.use(
   "/api/search",
   createSearchRouter(pool)
 );
+app.use("/api/health", createHealthRouter(pool));
 
 const projectRoot = path.resolve(
   process.cwd(),
@@ -344,43 +346,6 @@ async function generateMetadataReferenceCode(
   ).padStart(3, "0")}`;
 }
 
-app.get(
-  "/api/health",
-  async (
-    _req: Request,
-    res: Response
-  ) => {
-    try {
-      const result =
-        await pool.query(
-          "SELECT NOW() AS database_time"
-        );
-
-      res.json({
-        success: true,
-        service:
-          "Document Appraisal AI API",
-        status: "online",
-        database: "connected",
-        databaseTime:
-          result.rows[0].database_time,
-      });
-    } catch (error) {
-      console.error(
-        "Health check failed:",
-        error
-      );
-
-      res.status(500).json({
-        success: false,
-        service:
-          "Document Appraisal AI API",
-        status: "degraded",
-        database: "disconnected",
-      });
-    }
-  }
-);
 
 /* ============================================================
    M14 USER & ROLE MANAGEMENT
