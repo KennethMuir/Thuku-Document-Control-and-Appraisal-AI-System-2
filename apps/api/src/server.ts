@@ -1,42 +1,13 @@
 import "dotenv/config";
 
 import cors from "cors";
-import express, { type Request, type Response } from "express";
+import express from "express";
 import multer from "multer";
-import * as XLSX from "xlsx";
 import path from "path";
 import fs from "fs";
 import { Pool } from "pg";
-import { PDFParse } from "pdf-parse";
-import mammoth from "mammoth";
-import { ocrPdf } from "./services/ocr.js";
 import { LocalFileStorage } from "./services/storage.js";
-import { createAuditLog } from "./services/audit.js";
-import {
-  requireAuthentication,
-  requireRole,
-  type AuthenticatedRequest,
-} from "./middleware/auth.js";
-import {
-  extractDocumentContent,
-  type ExtractedDocument,
-} from "./services/documentExtraction.js";
 import { findBestMetadataMatch } from "./services/metadataMatching.js";
-import {
-  normalizeText,
-  normalizeComparable,
-  containsNormalized,
-  nullableString,
-  nullableNumber,
-  nullableInteger,
-  nullablePositiveInteger,
-} from "./utils/values.js";
-import {
-  RESERVED_METADATA_KEYS,
-  parseReviewMetadata,
-  sanitizeAdditionalMetadata,
-  type ReviewMetadataInput,
-} from "./services/metadataUtils.js";
 
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
