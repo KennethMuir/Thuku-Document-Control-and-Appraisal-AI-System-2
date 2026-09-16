@@ -11,6 +11,7 @@ import { PDFParse } from "pdf-parse";
 import mammoth from "mammoth";
 import { ocrPdf } from "./services/ocr.js";
 import { LocalFileStorage } from "./services/storage.js";
+import { createAuditLog } from "./services/audit.js";
 import {
   requireAuthentication,
   requireRole,
@@ -54,12 +55,9 @@ app.use(
 );
 app.use(express.json());
 
-
 /* ============================================================
    M10 AUTHENTICATION ROUTES
    ============================================================ */
-
-
 
 import { createAuthRouter } from "./routes/auth.js";
 
@@ -97,9 +95,6 @@ const upload = multer({
     fileSize: 25 * 1024 * 1024,
   },
 });
-
-
-
 
 async function findBestMetadataMatch(
   client: PoolClient,
@@ -171,32 +166,6 @@ async function findBestMetadataMatch(
   }
 
   return bestMatch;
-}
-
-async function createAuditLog(
-  client: PoolClient,
-  documentId: number | null,
-  metadataRecordId: number | null,
-  action: string,
-  details: string
-): Promise<void> {
-  await client.query(
-    `
-      INSERT INTO document_audit_logs (
-        document_id,
-        metadata_record_id,
-        action,
-        details
-      )
-      VALUES ($1, $2, $3, $4)
-    `,
-    [
-      documentId,
-      metadataRecordId,
-      action,
-      details,
-    ]
-  );
 }
 
 function buildReferencePrefix(
@@ -356,7 +325,6 @@ async function generateMetadataReferenceCode(
     highestNumber + 1
   ).padStart(3, "0")}`;
 }
-
 
 app.get(
   "/api/health",
@@ -1624,7 +1592,6 @@ app.post(
       });
     }
 
-
     const originalName =
       uploadedFile.originalname || "";
 
@@ -2873,7 +2840,6 @@ app.post(
 
         const documentCode =
           `DOC-${uploadNumber}`;
-
 
         const storedFilename =
           `${documentCode}${extension}`;
