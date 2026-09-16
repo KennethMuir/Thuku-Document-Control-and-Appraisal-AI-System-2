@@ -1,3 +1,5 @@
+import type { PoolClient } from "pg";
+
 import type { ExtractedDocument } from "./documentExtraction.js";
 
 function normalizeText(
@@ -467,4 +469,76 @@ export function calculateFieldMatch(
     matchingFields,
     conflictingFields,
   };
+}
+
+export async function findBestMetadataMatch(
+  client: PoolClient,
+  extracted: ExtractedDocument
+): Promise<MatchResult> {
+  const result =
+    await client.query<MetadataCandidate>(
+      `
+        SELECT
+          mr.id,
+          mr.reference_code,
+          mr.title,
+          mr.document_date,
+          mr.year,
+          mr.person_name,
+          mr.description,
+          mr.section,
+          mr.status,
+
+          d.name AS department_name,
+          d.code AS department_code,
+
+          dt.name AS document_type_name
+
+        FROM metadata_records mr
+
+        LEFT JOIN departments d
+          ON d.id = mr.department_id
+
+        LEFT JOIN document_types dt
+          ON dt.id = mr.document_type_id
+
+        ORDER BY mr.created_at DESC
+      `
+    );
+
+  let bestMatch: MatchResult = {
+    metadataRecordId: null,
+    matchType: "NO_MATCH",
+    confidence: 0,
+    matchingFields: [],
+    conflictingFields: [],
+  };
+
+  for (
+    const candidate of result.rows
+  ) {
+    const match =
+      calculateFieldMatch(
+        [
+          extracted.text,
+          extracted.title || "",
+          extracted.personName ||
+            "",
+          extracted.referenceCode ||
+            "",
+          extracted.year || "",
+        ].join("\n"),
+        extracted,
+        candidate
+      );
+
+    if (
+      match.confidence >
+      bestMatch.confidence
+    ) {
+      bestMatch = match;
+    }
+  }
+
+  return bestMatch;
 }
