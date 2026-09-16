@@ -11,11 +11,23 @@ import { PDFParse } from "pdf-parse";
 import mammoth from "mammoth";
 import { ocrPdf } from "./services/ocr.js";
 import { LocalFileStorage } from "./services/storage.js";
-import { randomBytes, createHash, scrypt as scryptCallback, timingSafeEqual } from "crypto";
-import { promisify } from "util";
+import {
+  SESSION_DURATION_DAYS,
+  normalizeEmail,
+  createPasswordHash,
+  verifyPassword,
+  createSessionToken,
+  hashSessionToken,
+  getSessionToken,
+  setSessionCookie,
+  clearSessionCookie,
+  findAuthenticatedUser,
+  requireAuthentication,
+  requireRole,
+  type AuthenticatedRequest,
+} from "./middleware/auth.js";
 
 const app = express();
-const scrypt = promisify(scryptCallback);
 const PORT = Number(process.env.PORT || 4000);
 
 const pool = new Pool({
@@ -32,362 +44,6 @@ app.use(
 );
 app.use(express.json());
 
-
-/* ============================================================
-   M10 AUTHENTICATION LAYER
-   ============================================================ */
-
-const SESSION_DURATION_DAYS = 7;
-
-type AuthUser = {
-  id: number;
-  email: string;
-  fullName: string | null;
-  role: "ADMIN" | "APPRAISER" | "VIEWER";
-  isActive: boolean;
-};
-
-type AuthenticatedRequest = Request & {
-  authUser?: AuthUser;
-  authSessionId?: number;
-};
-
-function normalizeEmail(value: unknown): string {
-  return String(value || "")
-    .trim()
-    .toLowerCase();
-}
-
-function createPasswordHash(
-  password: string
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const salt = randomBytes(16);
-
-    scryptCallback(
-      password,
-      salt,
-      64,
-      (error, derivedKey) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-
-        resolve(
-          [
-            "scrypt",
-            salt.toString("hex"),
-            derivedKey.toString("hex"),
-          ].join("$")
-        );
-      }
-    );
-  });
-}
-
-async function verifyPassword(
-  password: string,
-  storedHash: string
-): Promise<boolean> {
-  const parts = storedHash.split("$");
-
-  if (
-    parts.length !== 3 ||
-    parts[0] !== "scrypt"
-  ) {
-    return false;
-  }
-
-  const salt = Buffer.from(
-    parts[1]!,
-    "hex"
-  );
-
-  const expectedHash = Buffer.from(
-    parts[2]!,
-    "hex"
-  );
-
-  if (
-    salt.length === 0 ||
-    expectedHash.length === 0
-  ) {
-    return false;
-  }
-
-  const derivedKey = (await scrypt(
-    password,
-    salt,
-    expectedHash.length
-  )) as Buffer;
-
-  if (
-    derivedKey.length !==
-    expectedHash.length
-  ) {
-    return false;
-  }
-
-  return timingSafeEqual(
-    derivedKey,
-    expectedHash
-  );
-}
-
-function createSessionToken(): string {
-  return randomBytes(32).toString("base64url");
-}
-
-function hashSessionToken(
-  token: string
-): Buffer {
-  return createHash("sha256")
-    .update(token, "utf8")
-    .digest();
-}
-
-function getSessionToken(
-  req: Request
-): string | null {
-  const cookieHeader =
-    req.headers.cookie;
-
-  if (!cookieHeader) {
-    return null;
-  }
-
-  const cookies =
-    cookieHeader.split(";");
-
-  for (const cookie of cookies) {
-    const separator =
-      cookie.indexOf("=");
-
-    if (separator === -1) {
-      continue;
-    }
-
-    const name =
-      cookie.slice(0, separator).trim();
-
-    if (name !== "document_appraisal_session") {
-      continue;
-    }
-
-    return decodeURIComponent(
-      cookie.slice(separator + 1).trim()
-    );
-  }
-
-  return null;
-}
-
-function setSessionCookie(
-  res: Response,
-  token: string
-): void {
-  const secure =
-    process.env.NODE_ENV ===
-    "production";
-
-  const maxAge =
-    SESSION_DURATION_DAYS *
-    24 *
-    60 *
-    60;
-
-  const cookie = [
-    `document_appraisal_session=${encodeURIComponent(token)}`,
-    "Path=/",
-    `Max-Age=${maxAge}`,
-    "HttpOnly",
-    "SameSite=Lax",
-    secure ? "Secure" : "",
-  ]
-    .filter(Boolean)
-    .join("; ");
-
-  res.setHeader(
-    "Set-Cookie",
-    cookie
-  );
-}
-
-function clearSessionCookie(
-  res: Response
-): void {
-  res.setHeader(
-    "Set-Cookie",
-    [
-      "document_appraisal_session=",
-      "Path=/",
-      "Max-Age=0",
-      "HttpOnly",
-      "SameSite=Lax",
-      process.env.NODE_ENV ===
-      "production"
-        ? "Secure"
-        : "",
-    ]
-      .filter(Boolean)
-      .join("; ")
-  );
-}
-
-async function findAuthenticatedUser(
-  req: Request
-): Promise<{
-  user: AuthUser;
-  sessionId: number;
-} | null> {
-  const token =
-    getSessionToken(req);
-
-  if (!token) {
-    return null;
-  }
-
-  const tokenHash =
-    hashSessionToken(token);
-
-  const result =
-    await pool.query(
-      `
-        SELECT
-          s.id AS session_id,
-          u.id,
-          u.email,
-          u.full_name,
-          u.role,
-          u.is_active
-        FROM sessions s
-        INNER JOIN users u
-          ON u.id = s.user_id
-        WHERE s.token_hash = $1
-          AND s.revoked_at IS NULL
-          AND s.expires_at > NOW()
-        LIMIT 1
-      `,
-      [tokenHash]
-    );
-
-  if (result.rowCount === 0) {
-    return null;
-  }
-
-  const row =
-    result.rows[0];
-
-  await pool.query(
-    `
-      UPDATE sessions
-      SET last_seen_at = NOW()
-      WHERE id = $1
-    `,
-    [row.session_id]
-  );
-
-  return {
-    user: {
-      id: Number(row.id),
-      email: row.email,
-      fullName:
-        row.full_name || null,
-      role: row.role,
-      isActive:
-        Boolean(row.is_active),
-    },
-    sessionId:
-      Number(row.session_id),
-  };
-}
-
-async function requireAuthentication(
-  req: Request,
-  res: Response,
-  next: () => void
-): Promise<void> {
-  try {
-    const authenticated =
-      await findAuthenticatedUser(req);
-
-    if (!authenticated) {
-      res.status(401).json({
-        success: false,
-        error:
-          "Authentication required",
-      });
-      return;
-    }
-
-    const authenticatedRequest =
-      req as AuthenticatedRequest;
-
-    authenticatedRequest.authUser =
-      authenticated.user;
-
-    authenticatedRequest.authSessionId =
-      authenticated.sessionId;
-
-    next();
-  } catch (error) {
-    console.error(
-      "Authentication middleware failed:",
-      error
-    );
-
-    res.status(500).json({
-      success: false,
-      error:
-        "Unable to validate authentication",
-    });
-  }
-}
-
-function requireRole(
-  ...allowedRoles: Array<
-    "ADMIN" |
-    "APPRAISER" |
-    "VIEWER"
-  >
-) {
-  return (
-    req: Request,
-    res: Response,
-    next: () => void
-  ): void => {
-    const authenticatedRequest =
-      req as AuthenticatedRequest;
-
-    const user =
-      authenticatedRequest.authUser;
-
-    if (!user) {
-      res.status(401).json({
-        success: false,
-        error:
-          "Authentication required",
-      });
-      return;
-    }
-
-    if (
-      !allowedRoles.includes(
-        user.role
-      )
-    ) {
-      res.status(403).json({
-        success: false,
-        error:
-          "You do not have permission to perform this action",
-      });
-      return;
-    }
-
-    next();
-  };
-}
 
 /* ============================================================
    M10 AUTHENTICATION ROUTES
@@ -747,7 +403,7 @@ app.get(
   ) => {
     try {
       const authenticated =
-        await findAuthenticatedUser(req);
+        await findAuthenticatedUser(pool, req);
 
       if (!authenticated) {
         return res.status(401).json({
@@ -2133,7 +1789,7 @@ app.get(
 
 app.get(
   "/api/users",
-  requireAuthentication,
+  requireAuthentication(pool),
   requireRole("ADMIN"),
   async (
     _req: Request,
@@ -2182,7 +1838,7 @@ app.get(
 
 app.patch(
   "/api/users/:userId",
-  requireAuthentication,
+  requireAuthentication(pool),
   requireRole("ADMIN"),
   async (
     req: Request,
@@ -2412,7 +2068,7 @@ app.patch(
 );
 app.get(
   "/api/dashboard",
-  requireAuthentication,
+  requireAuthentication(pool),
   async (
     _req: Request,
     res: Response
@@ -2487,7 +2143,7 @@ app.get(
 
 app.get(
   "/api/departments",
-  requireAuthentication,
+  requireAuthentication(pool),
   async (
     _req: Request,
     res: Response
@@ -2526,7 +2182,7 @@ app.get(
 
 app.post(
   "/api/departments",
-  requireAuthentication,
+  requireAuthentication(pool),
   requireRole("ADMIN"),
   async (
     req: Request,
@@ -2611,7 +2267,7 @@ app.post(
 
 app.post(
   "/api/departments/:departmentId",
-  requireAuthentication,
+  requireAuthentication(pool),
   requireRole("ADMIN"),
   async (
     req: Request,
@@ -2723,7 +2379,7 @@ app.post(
 
 app.post(
   "/api/departments/:departmentId/delete",
-  requireAuthentication,
+  requireAuthentication(pool),
   requireRole("ADMIN"),
   async (
     req: Request,
@@ -2790,7 +2446,7 @@ app.post(
 );
 app.get(
   "/api/document-types",
-  requireAuthentication,
+  requireAuthentication(pool),
   async (
     _req: Request,
     res: Response
@@ -2828,7 +2484,7 @@ app.get(
 
 app.get(
   "/api/search",
-  requireAuthentication,
+  requireAuthentication(pool),
   async (
     req: Request,
     res: Response
@@ -3043,7 +2699,7 @@ app.get(
 );
 app.get(
   "/api/metadata",
-  requireAuthentication,
+  requireAuthentication(pool),
   async (
     _req: Request,
     res: Response
@@ -3166,7 +2822,7 @@ app.get(
 
 app.post(
   "/api/metadata",
-  requireAuthentication,
+  requireAuthentication(pool),
   requireRole("ADMIN", "APPRAISER"),
   async (
     req: Request,
@@ -3339,7 +2995,7 @@ app.post(
 
 app.post(
   "/api/metadata/bulk",
-  requireAuthentication,
+  requireAuthentication(pool),
   requireRole("ADMIN", "APPRAISER"),
   upload.single("file"),
   async (
@@ -4243,7 +3899,7 @@ app.post(
 );
 app.get(
   "/api/documents",
-  requireAuthentication,
+  requireAuthentication(pool),
   async (
     _req: Request,
     res: Response
@@ -4323,7 +3979,7 @@ app.get(
 
 app.get(
   "/api/documents/:documentId/appraisal",
-  requireAuthentication,
+  requireAuthentication(pool),
   async (
     req: Request,
     res: Response
@@ -4491,7 +4147,7 @@ app.get(
 
 app.post(
   "/api/documents/upload",
-  requireAuthentication,
+  requireAuthentication(pool),
   requireRole("ADMIN", "APPRAISER"),
   upload.single("file"),
   async (
@@ -5506,7 +5162,7 @@ app.post(
 
 app.post(
   "/api/documents/:documentId/link",
-  requireAuthentication,
+  requireAuthentication(pool),
   requireRole("ADMIN", "APPRAISER"),
   async (
     req: Request,
@@ -5779,7 +5435,7 @@ app.post(
 
 app.post(
   "/api/documents/:documentId/review",
-  requireAuthentication,
+  requireAuthentication(pool),
   requireRole("ADMIN", "APPRAISER"),
   async (
     req: Request,
@@ -5832,12 +5488,14 @@ app.post(
       normalizedDecision !==
         "APPROVE" &&
       normalizedDecision !==
-        "REJECT"
+        "REJECT" &&
+      normalizedDecision !==
+        "CREATE_METADATA"
     ) {
       return res.status(400).json({
         success: false,
         error:
-          "Decision must be APPROVE or REJECT",
+          "Decision must be APPROVE, REJECT, or CREATE_METADATA",
       });
     }
 
@@ -6016,29 +5674,6 @@ app.post(
           metadataResult.rows[0];
 
         /*
-         * Merge reviewer-supplied expandable metadata
-         * into the existing metadata record.
-         *
-         * Existing custom fields are preserved.
-         * Reviewer-supplied values replace matching
-         * existing keys.
-         */
-        const existingAdditionalMetadata =
-          sanitizeAdditionalMetadata(
-            metadata.additional_metadata
-          );
-
-        const submittedAdditionalMetadata =
-          sanitizeAdditionalMetadata(
-            submittedMetadata?.additionalMetadata
-          );
-
-        const mergedAdditionalMetadata = {
-          ...existingAdditionalMetadata,
-          ...submittedAdditionalMetadata,
-        };
-
-        /*
          * NO existing-link check.
          *
          * A metadata record can be linked
@@ -6078,208 +5713,6 @@ app.post(
               documentId,
             ]
           );
-        const submittedReferenceCode =
-          submittedMetadata &&
-          Object.prototype.hasOwnProperty.call(
-            submittedMetadata,
-            "referenceCode"
-          )
-            ? String(submittedMetadata.referenceCode ?? "").trim() || null
-            : metadata.reference_code;
-
-        const submittedTitle =
-          submittedMetadata &&
-          Object.prototype.hasOwnProperty.call(
-            submittedMetadata,
-            "title"
-          )
-            ? String(submittedMetadata.title ?? "").trim() || null
-            : metadata.title;
-
-        const submittedPersonName =
-          submittedMetadata &&
-          Object.prototype.hasOwnProperty.call(
-            submittedMetadata,
-            "personName"
-          )
-            ? String(submittedMetadata.personName ?? "").trim() || null
-            : metadata.person_name;
-
-        const submittedDepartmentId =
-          submittedMetadata &&
-          Object.prototype.hasOwnProperty.call(
-            submittedMetadata,
-            "departmentId"
-          )
-            ? submittedMetadata.departmentId === null ||
-              submittedMetadata.departmentId === undefined ||
-              submittedMetadata.departmentId === ""
-              ? null
-              : Number(submittedMetadata.departmentId)
-            : metadata.department_id;
-
-        const submittedDocumentTypeId =
-          submittedMetadata &&
-          Object.prototype.hasOwnProperty.call(
-            submittedMetadata,
-            "documentTypeId"
-          )
-            ? submittedMetadata.documentTypeId === null ||
-              submittedMetadata.documentTypeId === undefined ||
-              submittedMetadata.documentTypeId === ""
-              ? null
-              : Number(submittedMetadata.documentTypeId)
-            : metadata.document_type_id;
-
-        const submittedSection =
-          submittedMetadata &&
-          Object.prototype.hasOwnProperty.call(
-            submittedMetadata,
-            "section"
-          )
-            ? String(submittedMetadata.section ?? "").trim() || null
-            : metadata.section;
-
-        const submittedYear =
-          submittedMetadata &&
-          Object.prototype.hasOwnProperty.call(
-            submittedMetadata,
-            "year"
-          )
-            ? String(submittedMetadata.year ?? "").trim() || null
-            : metadata.year;
-
-        const submittedDocumentDateRaw =
-          submittedMetadata &&
-          Object.prototype.hasOwnProperty.call(
-            submittedMetadata,
-            "documentDate"
-          )
-            ? String(
-                submittedMetadata.documentDate ?? ""
-              ).trim() || null
-            : metadata.document_date;
-
-        let submittedDocumentDate =
-          submittedDocumentDateRaw;
-
-        if (
-          submittedDocumentDate &&
-          !/^\d{4}-\d{2}-\d{2}$/.test(
-            submittedDocumentDate
-          )
-        ) {
-          const submittedYear =
-            submittedMetadata &&
-            Object.prototype.hasOwnProperty.call(
-              submittedMetadata,
-              "year"
-            )
-              ? Number(
-                  submittedMetadata.year
-                )
-              : null;
-
-          const match =
-            submittedDocumentDate.match(
-              /^(?:[A-Za-z]{3}\s+)?([A-Za-z]{3,9})\s+(\d{1,2})$/
-            );
-
-          const months: Record<string, number> = {
-            jan: 1, january: 1,
-            feb: 2, february: 2,
-            mar: 3, march: 3,
-            apr: 4, april: 4,
-            may: 5,
-            jun: 6, june: 6,
-            jul: 7, july: 7,
-            aug: 8, august: 8,
-            sep: 9, sept: 9, september: 9,
-            oct: 10, october: 10,
-            nov: 11, november: 11,
-            dec: 12, december: 12,
-          };
-
-          if (
-            match &&
-            submittedYear !== null &&
-            Number.isInteger(submittedYear) &&
-            submittedYear >= 1000 &&
-            submittedYear <= 9999
-          ) {
-            const month =
-              months[match[1].toLowerCase()];
-            const day = Number(match[2]);
-
-            if (
-              month &&
-              day >= 1 &&
-              day <= 31
-            ) {
-              const candidate =
-                `${submittedYear}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-
-              const parsed =
-                new Date(`${candidate}T00:00:00Z`);
-
-              if (
-                parsed.getUTCFullYear() ===
-                  submittedYear &&
-                parsed.getUTCMonth() + 1 ===
-                  month &&
-                parsed.getUTCDate() === day
-              ) {
-                submittedDocumentDate =
-                  candidate;
-              }
-            }
-          }
-        }
-
-        const submittedDescription =
-          submittedMetadata &&
-          Object.prototype.hasOwnProperty.call(
-            submittedMetadata,
-            "description"
-          )
-            ? String(submittedMetadata.description ?? "").trim() || null
-            : metadata.description;
-
-        await client.query(
-          `
-            UPDATE metadata_records
-            SET
-              reference_code = COALESCE($1, reference_code),
-              title = $2,
-              person_name = $3,
-              department_id = $4,
-              document_type_id = $5,
-              section = $6,
-              year = $7::integer,
-              document_date = $8::date,
-              description = $9,
-              additional_metadata = $10::jsonb,
-              status =
-                'DOCUMENT_LINKED',
-              updated_at = NOW()
-            WHERE id = $11
-          `,
-          [
-            submittedReferenceCode,
-            submittedTitle,
-            submittedPersonName,
-            submittedDepartmentId,
-            submittedDocumentTypeId,
-            submittedSection,
-            submittedYear,
-            submittedDocumentDate,
-            submittedDescription,
-            JSON.stringify(
-              mergedAdditionalMetadata
-            ),
-            parsedMetadataRecordId,
-          ]
-        );
 
         await client.query(
           `
@@ -6350,6 +5783,26 @@ app.post(
        * This means the reviewer is NOT forced
        * to accept every extracted field.
        */
+      /*
+       * --------------------------------------------------
+       * REJECT MATCH
+       * --------------------------------------------------
+       *
+       * Rejecting the AI recommendation does NOT create
+       * a metadata record.
+       *
+       * The reviewer will subsequently review/edit the
+       * proposed new metadata in the frontend and use
+       * CREATE_METADATA when they explicitly approve
+       * creation.
+       *
+       * Therefore REJECT only:
+       *
+       * 1. Marks the AI recommendation as REJECTED.
+       * 2. Leaves the existing metadata unchanged.
+       * 3. Leaves the document unlinked.
+       * 4. Records the appraisal rejection in the audit log.
+       */
       if (
         normalizedDecision ===
         "REJECT"
@@ -6370,389 +5823,18 @@ app.post(
           latestMatchResult.rows[0] ||
           null;
 
-        const rejectedMetadataId =
-          latestMatch?.metadata_record_id ??
-          null;
-
-        const extractedTitle =
-          document.extracted_title ||
-          document.title ||
-          null;
-
-        const extractedDate =
-          document.extracted_date ||
-          document.document_date ||
-          null;
-
-        const extractedYear =
-          document.extracted_year ||
-          document.year ||
-          null;
-
-        const extractedPersonName =
-          document.extracted_person_name ||
-          document.person_name ||
-          null;
-
-        const extractedText =
-          String(
-            document.extracted_text ||
-              ""
-          );
-
         /*
-         * If the reviewer submitted metadata,
-         * use it exactly.
+         * Mark the AI recommendation as rejected.
          *
-         * Otherwise use extracted values as
-         * the backward-compatible default.
-         */
-        const hasSubmittedMetadata =
-          submittedMetadata !==
-          null;
-
-        const requestedReferenceCode =
-          hasSubmittedMetadata
-            ? nullableString(
-                submittedMetadata
-                  ?.referenceCode
-              )
-            : null;
-
-        const newReferenceCode =
-          await generateMetadataReferenceCode(
-            client,
-            requestedReferenceCode,
-            document
-          );
-
-        let newTitle =
-          hasSubmittedMetadata
-            ? nullableString(
-                submittedMetadata
-                  ?.title
-              )
-            : extractedTitle;
-
-        let newPersonName =
-          hasSubmittedMetadata
-            ? nullableString(
-                submittedMetadata
-                  ?.personName
-              )
-            : extractedPersonName;
-
-        let newSection =
-          hasSubmittedMetadata
-            ? nullableString(
-                submittedMetadata
-                  ?.section
-              )
-            : null;
-
-        let newYear =
-          hasSubmittedMetadata
-            ? nullableInteger(
-                submittedMetadata
-                  ?.year
-              )
-            : extractedYear;
-
-        let newDocumentDate =
-          hasSubmittedMetadata
-            ? nullableString(
-                submittedMetadata
-                  ?.documentDate
-              )
-            : extractedDate;
-
-        if (
-          newDocumentDate &&
-          !/^\d{4}-\d{2}-\d{2}$/.test(
-            newDocumentDate
-          )
-        ) {
-          const yearForDate =
-            newYear != null
-              ? Number(newYear)
-              : null;
-
-          const partialDateMatch =
-            newDocumentDate.match(
-              /^(?:[A-Za-z]{3}\s+)?([A-Za-z]{3,9})\s+(\d{1,2})$/
-            );
-
-          const monthNames: Record<
-            string,
-            number
-          > = {
-            jan: 1,
-            january: 1,
-            feb: 2,
-            february: 2,
-            mar: 3,
-            march: 3,
-            apr: 4,
-            april: 4,
-            may: 5,
-            jun: 6,
-            june: 6,
-            jul: 7,
-            july: 7,
-            aug: 8,
-            august: 8,
-            sep: 9,
-            sept: 9,
-            september: 9,
-            oct: 10,
-            october: 10,
-            nov: 11,
-            november: 11,
-            dec: 12,
-            december: 12,
-          };
-
-          if (
-            partialDateMatch &&
-            yearForDate !== null &&
-            Number.isInteger(yearForDate) &&
-            yearForDate >= 1000 &&
-            yearForDate <= 9999
-          ) {
-            const month =
-              monthNames[
-                partialDateMatch[1].toLowerCase()
-              ];
-
-            const day = Number(
-              partialDateMatch[2]
-            );
-
-            if (
-              month &&
-              day >= 1 &&
-              day <= 31
-            ) {
-              const candidate =
-                `${yearForDate}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-
-              const parsed =
-                new Date(
-                  `${candidate}T00:00:00Z`
-                );
-
-              if (
-                parsed.getUTCFullYear() ===
-                  yearForDate &&
-                parsed.getUTCMonth() + 1 ===
-                  month &&
-                parsed.getUTCDate() === day
-              ) {
-                newDocumentDate =
-                  candidate;
-              }
-            }
-          }
-        }
-
-        let newDescription =
-          hasSubmittedMetadata
-            ? nullableString(
-                submittedMetadata
-                  ?.description
-              )
-            : `Metadata automatically created from uploaded document ${document.document_code} after the human reviewer rejected the AI-recommended metadata match.`;
-
-        let newDepartmentId =
-          hasSubmittedMetadata
-            ? nullablePositiveInteger(
-                submittedMetadata
-                  ?.departmentId
-              )
-            : document.department_id ??
-              null;
-
-        let newDocumentTypeId =
-          hasSubmittedMetadata
-            ? nullablePositiveInteger(
-                submittedMetadata
-                  ?.documentTypeId
-              )
-            : document.document_type_id ??
-              null;
-
-        /*
-         * When no editable metadata object
-         * was submitted, retain the previous
-         * contextual fallback behavior.
-         */
-        if (
-          !hasSubmittedMetadata &&
-          rejectedMetadataId !== null &&
-          (
-            newDepartmentId ===
-              null ||
-            newDocumentTypeId ===
-              null
-          )
-        ) {
-          const rejectedMetadataResult =
-            await client.query(
-              `
-                SELECT
-                  department_id,
-                  document_type_id,
-                  section
-                FROM metadata_records
-                WHERE id = $1
-                FOR SHARE
-              `,
-              [
-                rejectedMetadataId,
-              ]
-            );
-
-          if (
-            rejectedMetadataResult
-              .rows.length > 0
-          ) {
-            const rejectedMetadata =
-              rejectedMetadataResult
-                .rows[0];
-
-            if (
-              newDepartmentId ===
-              null
-            ) {
-              newDepartmentId =
-                rejectedMetadata
-                  .department_id;
-            }
-
-            if (
-              newDocumentTypeId ===
-              null
-            ) {
-              newDocumentTypeId =
-                rejectedMetadata
-                  .document_type_id;
-            }
-
-            if (
-              newSection === null
-            ) {
-              newSection =
-                rejectedMetadata
-                  .section ??
-                null;
-            }
-          }
-        }
-
-        /*
-         * Create the new metadata record.
-         */
-        const newMetadataResult =
-          await client.query(
-            `
-              INSERT INTO metadata_records (
-                reference_code,
-                title,
-                document_date,
-                year,
-                person_name,
-                description,
-                section,
-                status,
-                department_id,
-                document_type_id,
-                additional_metadata
-              )
-              VALUES (
-                $1,
-                $2,
-                $3,
-                $4,
-                $5,
-                $6,
-                $7,
-                'DOCUMENT_LINKED',
-                $8,
-                $9,
-                $10::jsonb
-              )
-              RETURNING *
-            `,
-            [
-              newReferenceCode,
-              newTitle,
-              newDocumentDate,
-              newYear,
-              newPersonName,
-              newDescription,
-              newSection,
-              newDepartmentId,
-              newDocumentTypeId,
-              JSON.stringify(
-                sanitizeAdditionalMetadata(
-                  submittedMetadata?.additionalMetadata
-                )
-              ),
-            ]
-          );
-
-        const newMetadata =
-          newMetadataResult.rows[0];
-
-        /*
-         * Link the uploaded document to
-         * the newly created metadata.
-         */
-        const linkedDocumentResult =
-          await client.query(
-            `
-              UPDATE documents
-              SET
-                metadata_record_id = $1,
-
-                department_id =
-                  COALESCE(
-                    department_id,
-                    $2
-                  ),
-
-                document_type_id =
-                  COALESCE(
-                    document_type_id,
-                    $3
-                  ),
-
-                status = 'LINKED',
-                updated_at = NOW()
-
-              WHERE id = $4
-
-              RETURNING *
-            `,
-            [
-              newMetadata.id,
-              newDepartmentId,
-              newDocumentTypeId,
-              documentId,
-            ]
-          );
-
-        /*
-         * Mark the AI recommendation as
-         * rejected.
+         * No metadata_records row is inserted or
+         * modified here.
          */
         if (latestMatch) {
           await client.query(
             `
               UPDATE document_matches
               SET
-                decision =
-                  'REJECTED'
+                decision = 'REJECTED'
               WHERE id = $1
             `,
             [latestMatch.id]
@@ -6760,82 +5842,37 @@ app.post(
         }
 
         /*
-         * Store the human-created
-         * relationship separately.
+         * Explicitly keep the uploaded document
+         * unlinked after the AI recommendation
+         * has been rejected.
          */
-        const newMatchResult =
+        const unlinkedDocumentResult =
           await client.query(
             `
-              INSERT INTO document_matches (
-                document_id,
-                metadata_record_id,
-                match_type,
-                confidence,
-                matching_fields,
-                conflicting_fields,
-                decision
-              )
-              VALUES (
-                $1,
-                $2,
-                'HUMAN_CREATED_METADATA',
-                100,
-                $3,
-                $4,
-                'LINKED'
-              )
+              UPDATE documents
+              SET
+                metadata_record_id = NULL,
+                status = 'UNLINKED',
+                updated_at = NOW()
+              WHERE id = $1
               RETURNING *
             `,
-            [
-              documentId,
-              newMetadata.id,
-
-              JSON.stringify([
-                hasSubmittedMetadata
-                  ? "Metadata created and edited by human reviewer"
-                  : "Metadata created from document",
-              ]),
-
-              JSON.stringify(
-                latestMatch
-                  ?.conflicting_fields
-                  ? String(
-                      latestMatch
-                        .conflicting_fields
-                    )
-                  : []
-              ),
-            ]
+            [documentId]
           );
 
+        /*
+         * Record the human rejection.
+         *
+         * The rejected metadata record is referenced
+         * for audit history only; it is not modified.
+         */
         await createAuditLog(
           client,
           documentId,
-          rejectedMetadataId,
+          latestMatch?.metadata_record_id ??
+            null,
           "APPRAISAL_REJECTED",
-          JSON.stringify({
-            message:
-              "Human reviewer rejected the AI-recommended metadata match.",
-            submittedMetadata:
-              hasSubmittedMetadata,
-          })
-        );
-
-        await createAuditLog(
-          client,
-          documentId,
-          newMetadata.id,
-          "NEW_METADATA_CREATED",
-          JSON.stringify({
-            referenceCode:
-              newReferenceCode,
-            documentCode:
-              document.document_code,
-            message:
-              "New metadata record was created and linked to the uploaded document.",
-            humanEdited:
-              hasSubmittedMetadata,
-          })
+          "Human reviewer rejected the AI-recommended document-to-metadata match. No new metadata record was created."
         );
 
         await client.query(
@@ -6844,25 +5881,22 @@ app.post(
 
         return res.json({
           success: true,
-
           message:
-            "AI match rejected. New metadata was created, stored, and linked to the document.",
-
+            "AI match rejected. No metadata record was created. The document is ready for new metadata review.",
           document:
-            linkedDocumentResult
-              .rows[0],
-
-          metadata:
-            newMetadata,
-
+            unlinkedDocumentResult.rows[0],
+          metadata: null,
           match:
-            newMatchResult.rows[0],
-
+            latestMatch
+              ? {
+                  ...latestMatch,
+                  decision: "REJECTED",
+                }
+              : null,
           rejectedMetadataRecordId:
-            rejectedMetadataId,
-
-          decision:
-            "NEW_METADATA_CREATED",
+            latestMatch?.metadata_record_id ??
+            null,
+          decision: "REJECTED",
         });
       }
     } catch (error) {
@@ -6894,7 +5928,7 @@ app.post(
 
 app.get(
   "/api/documents/:documentId/file",
-  requireAuthentication,
+  requireAuthentication(pool),
   async (
     req: Request,
     res: Response
@@ -7070,6 +6104,7 @@ app.listen(
     );
   }
 );
+
 
 
 
