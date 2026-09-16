@@ -62,12 +62,18 @@ app.use(express.json());
 import { createAuthRouter } from "./routes/auth.js";
 import { createUsersRouter } from "./routes/users.js";
 import { createDepartmentsRouter } from "./routes/departments.js";
+import { createDocumentTypesRouter } from "./routes/documentTypes.js";
 
 app.use("/api/auth", createAuthRouter(pool));
 app.use("/api/users", createUsersRouter(pool));
 app.use(
   "/api/departments",
   createDepartmentsRouter(pool)
+);
+
+app.use(
+  "/api/document-types",
+  createDocumentTypesRouter(pool)
 );
 
 const projectRoot = path.resolve(
@@ -450,43 +456,7 @@ app.get(
   }
 );
 
-app.get(
-  "/api/document-types",
-  requireAuthentication(pool),
-  async (
-    _req: Request,
-    res: Response
-  ) => {
-    try {
-      const result =
-        await pool.query(`
-          SELECT
-            id,
-            name,
-            description
-          FROM document_types
-          ORDER BY name
-        `);
 
-      res.json({
-        success: true,
-        documentTypes:
-          result.rows,
-      });
-    } catch (error) {
-      console.error(
-        "Document types query failed:",
-        error
-      );
-
-      res.status(500).json({
-        success: false,
-        error:
-          "Unable to retrieve document types",
-      });
-    }
-  }
-);
 
 app.get(
   "/api/search",
