@@ -65,6 +65,7 @@ import { createDepartmentsRouter } from "./routes/departments.js";
 import { createDocumentTypesRouter } from "./routes/documentTypes.js";
 import { createSearchRouter } from "./routes/search.js";
 import { createHealthRouter } from "./routes/health.js";
+import { createDashboardRouter } from "./routes/dashboard.js";
 
 app.use("/api/auth", createAuthRouter(pool));
 app.use("/api/users", createUsersRouter(pool));
@@ -82,6 +83,7 @@ app.use(
   createSearchRouter(pool)
 );
 app.use("/api/health", createHealthRouter(pool));
+app.use("/api/dashboard", createDashboardRouter(pool));
 
 const projectRoot = path.resolve(
   process.cwd(),
@@ -350,84 +352,6 @@ async function generateMetadataReferenceCode(
 /* ============================================================
    M14 USER & ROLE MANAGEMENT
    ============================================================ */
-
-app.get(
-  "/api/dashboard",
-  requireAuthentication(pool),
-  async (
-    _req: Request,
-    res: Response
-  ) => {
-    try {
-      const result =
-        await pool.query(`
-          SELECT
-            (
-              SELECT COUNT(*)
-              FROM documents
-            ) AS documents,
-
-            (
-              SELECT COUNT(*)
-              FROM metadata_records
-            ) AS metadata,
-
-            (
-              SELECT COUNT(*)
-              FROM departments
-            ) AS departments,
-
-            (
-              SELECT COUNT(*)
-              FROM documents
-              WHERE metadata_record_id
-                IS NOT NULL
-            ) AS linked,
-
-            (
-              SELECT COUNT(*)
-              FROM metadata_records
-              WHERE status =
-                'AWAITING_DOCUMENT'
-            ) AS awaiting,
-
-            (
-              SELECT COUNT(*)
-              FROM documents
-              WHERE status =
-                'REVIEW_REQUIRED'
-            ) AS review,
-
-            (
-              SELECT COUNT(*)
-              FROM documents
-              WHERE metadata_record_id
-                IS NULL
-            ) AS unlinked
-        `);
-
-      res.json({
-        success: true,
-        dashboard:
-          result.rows[0],
-      });
-    } catch (error) {
-      console.error(
-        "Dashboard query failed:",
-        error
-      );
-
-      res.status(500).json({
-        success: false,
-        error:
-          "Unable to retrieve dashboard statistics",
-      });
-    }
-  }
-);
-
-
-
 
 app.get(
   "/api/metadata",
