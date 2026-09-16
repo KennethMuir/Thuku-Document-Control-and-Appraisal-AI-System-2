@@ -1,11 +1,10 @@
 import cors from "cors";
 import express from "express";
-import multer from "multer";
-import path from "path";
-import fs from "fs";
-import { Pool } from "pg";
 
-import { LocalFileStorage } from "./services/storage.js";
+import {
+  createApiInfrastructure,
+} from "./infrastructure/apiInfrastructure.js";
+
 import { findBestMetadataMatch } from "./services/metadataMatching.js";
 
 import { createAuthRouter } from "./routes/auth.js";
@@ -22,9 +21,11 @@ import { createMetadataBulkRouter } from "./routes/metadataBulk.js";
 
 const app = express();
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
+const {
+  pool,
+  localFileStorage,
+  upload,
+} = createApiInfrastructure();
 
 const webOrigin =
   process.env.WEB_ORIGIN ||
@@ -38,10 +39,6 @@ app.use(
 );
 
 app.use(express.json());
-
-/* ============================================================
-   API ROUTES
-   ============================================================ */
 
 app.use(
   "/api/auth",
@@ -83,43 +80,6 @@ app.use(
   createMetadataRouter(pool)
 );
 
-/* ============================================================
-   FILE STORAGE / UPLOAD INFRASTRUCTURE
-   ============================================================ */
-
-const projectRoot = path.resolve(
-  process.cwd(),
-  "..",
-  ".."
-);
-
-const storageRoot = path.join(
-  projectRoot,
-  "storage",
-  "documents"
-);
-
-const temporaryRoot = path.join(
-  projectRoot,
-  "storage",
-  "temporary"
-);
-
-fs.mkdirSync(
-  storageRoot,
-  { recursive: true }
-);
-
-fs.mkdirSync(
-  temporaryRoot,
-  { recursive: true }
-);
-
-const localFileStorage =
-  new LocalFileStorage(
-    storageRoot
-  );
-
 app.use(
   "/api/documents",
   createDocumentsRouter(
@@ -127,13 +87,6 @@ app.use(
     localFileStorage
   )
 );
-
-const upload = multer({
-  dest: temporaryRoot,
-  limits: {
-    fileSize: 25 * 1024 * 1024,
-  },
-});
 
 app.use(
   "/api/metadata/bulk",
