@@ -8,13 +8,17 @@ import {
 
 import type { Pool } from "pg";
 
+import { LocalFileStorage } from "../services/storage.js";
+
 import {
   requireAuthentication,
   requireRole,
+  type AuthenticatedRequest,
 } from "../middleware/auth.js";
 
 export function createDocumentsRouter(
-  pool: Pool
+  pool: Pool,
+  localFileStorage?: LocalFileStorage
 ) {
   const router = Router();
 
@@ -1031,5 +1035,184 @@ router.post(
       }
     }
   );
+
+router.get(
+  "/:documentId/file",
+  requireAuthentication(pool),
+  async (
+    req: Request,
+    res: Response
+  ) => {
+    const documentId =
+      Number(
+        req.params.documentId
+      );
+
+    if (
+      !Number.isInteger(
+        documentId
+      ) ||
+      documentId <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "Invalid document ID",
+      });
+    }
+
+    try {
+      const result =
+        await pool.query(
+          `
+            SELECT
+              df.original_filename,
+              df.stored_filename,
+              df.storage_provider,
+              df.storage_reference,
+              df.mime_type,
+              d.owner_user_id
+            FROM document_files df
+            INNER JOIN documents d
+              ON d.id = df.document_id
+            WHERE df.document_id = $1
+            ORDER BY df.uploaded_at DESC
+            LIMIT 1
+          `,
+          [documentId]
+        );
+
+      if (
+        result.rowCount === 0
+      ) {
+        return res.status(404).json({
+          success: false,
+          error:
+            "Document file not found",
+        });
+      }
+
+      const file =
+        result.rows[0];
+
+      const authenticatedRequest =
+        req as AuthenticatedRequest;
+
+      const authUser =
+        authenticatedRequest.authUser;
+
+      if (!authUser) {
+        return res.status(401).json({
+          success: false,
+          error:
+            "Authentication required",
+        });
+      }
+
+      const isOwner =
+        Number(file.owner_user_id) ===
+        authUser.id;
+
+      const isPrivileged =
+        authUser.role === "ADMIN" ||
+        authUser.role === "APPRAISER";
+
+      if (
+        !isOwner &&
+        !isPrivileged
+      ) {
+        return res.status(403).json({
+          success: false,
+          error:
+            "You do not have access to this document",
+        });
+      }
+
+      const storageProvider =
+        String(
+          file.storage_provider || ""
+        ).toUpperCase();
+
+      if (
+        storageProvider !==
+        "LOCAL"
+      ) {
+        return res.status(500).json({
+          success: false,
+          error:
+            `Unsupported document storage provider: ${storageProvider || "UNKNOWN"}`,
+        });
+      }
+
+      const storageReference =
+        String(
+          file.storage_reference || ""
+        ).trim();
+
+      if (!storageReference) {
+        return res.status(500).json({
+          success: false,
+          error:
+            "Document storage reference is missing",
+        });
+      }
+
+      if (!localFileStorage) {
+        return res.status(500).json({
+          success: false,
+          error:
+            "Document storage service is unavailable",
+        });
+      }
+
+      const exists =
+        await localFileStorage.exists(
+          storageReference
+        );
+
+      if (!exists) {
+        return res.status(404).json({
+          success: false,
+          error:
+            "Stored document file is missing",
+        });
+      }
+
+      const localPath =
+        localFileStorage.resolve(
+          storageReference
+        );
+
+      res.setHeader(
+        "Content-Type",
+        file.mime_type ||
+          "application/octet-stream"
+      );
+
+      res.setHeader(
+        "Content-Disposition",
+        `inline; filename="${String(
+          file.original_filename
+        ).replace(/"/g, "")}"`
+      );
+
+      return res.sendFile(
+        localPath
+      );
+    } catch (error) {
+      console.error(
+        "Document file retrieval failed:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          "Unable to retrieve document file",
+      });
+    }
+  }
+);
+
   return router;
 }
