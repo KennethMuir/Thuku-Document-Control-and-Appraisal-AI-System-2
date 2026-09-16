@@ -1,7 +1,18 @@
 import { Router, type Request, type Response } from "express";
 import type { Pool } from "pg";
 
-import { requireAuthentication } from "../middleware/auth.js";
+import {
+  requireAuthentication,
+  requireRole,
+} from "../middleware/auth.js";
+import {
+  nullableString,
+  nullableInteger,
+  nullablePositiveInteger,
+} from "../utils/values.js";
+import {
+  sanitizeAdditionalMetadata,
+} from "../services/metadataUtils.js";
 
 export function createMetadataRouter(pool: Pool) {
   const router = Router();
@@ -127,6 +138,179 @@ export function createMetadataRouter(pool: Pool) {
     }
   }
 );
+router.post(
+  "/",
+  requireAuthentication(pool),
+  requireRole("ADMIN", "APPRAISER"),
+  async (
+    req: Request,
+    res: Response
+  ) => {
+    const {
+      referenceCode,
+      title,
+      personName,
+      departmentId,
+      documentTypeId,
+      section,
+      year,
+      documentDate,
+      description,
+      additionalMetadata,
+    } = req.body;
+
+    if (
+      !referenceCode ||
+      !String(
+        referenceCode
+      ).trim()
+    ) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "Reference code is required",
+      });
+    }
+
+    try {
+      const duplicate =
+        await pool.query(
+          `
+            SELECT id
+            FROM metadata_records
+            WHERE LOWER(reference_code) =
+                  LOWER($1)
+            LIMIT 1
+          `,
+          [
+            String(
+              referenceCode
+            ).trim(),
+          ]
+        );
+
+      if (
+        duplicate.rowCount &&
+        duplicate.rowCount > 0
+      ) {
+        return res.status(409).json({
+          success: false,
+          error:
+            "A metadata record with this reference code already exists",
+        });
+      }
+
+      const result =
+        await pool.query(
+          `
+            INSERT INTO metadata_records (
+              reference_code,
+              title,
+              person_name,
+              department_id,
+              document_type_id,
+              section,
+              year,
+              document_date,
+              description,
+              additional_metadata,
+              status
+            )
+            VALUES (
+              $1,
+              $2,
+              $3,
+              $4,
+              $5,
+              $6,
+              $7,
+              $8,
+              $9,
+              $10,
+              'AWAITING_DOCUMENT'
+            )
+            RETURNING
+              id,
+              reference_code,
+              title,
+              person_name,
+              department_id,
+              document_type_id,
+              section,
+              year,
+              document_date,
+              description,
+              additional_metadata,
+              status,
+              created_at,
+              updated_at
+          `,
+          [
+            String(
+              referenceCode
+            ).trim(),
+
+            nullableString(title),
+
+            nullableString(
+              personName
+            ),
+
+            nullablePositiveInteger(
+              departmentId
+            ),
+
+            nullablePositiveInteger(
+              documentTypeId
+            ),
+
+            nullableString(
+              section
+            ),
+
+            nullableInteger(year),
+
+            nullableString(
+              documentDate
+            ),
+
+            nullableString(
+              description
+            ),
+
+            JSON.stringify(
+              sanitizeAdditionalMetadata(
+                additionalMetadata
+              )
+            ),
+          ]
+        );
+
+      res.status(201).json({
+        success: true,
+        metadata:
+          result.rows[0],
+      });
+    } catch (error: any) {
+      console.error(
+        "Metadata creation failed:",
+        error
+      );
+
+      res.status(500).json({
+        success: false,
+        error:
+          "Unable to create metadata record",
+        details:
+          process.env.NODE_ENV ===
+          "development"
+            ? error.message
+            : undefined,
+      });
+    }
+  }
+);
+
+
   return router;
 }
-
