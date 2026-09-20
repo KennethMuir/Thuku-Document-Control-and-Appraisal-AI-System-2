@@ -38,6 +38,10 @@ type UseRegistryFiltersOptions = {
   setActivePage: (
     value: string
   ) => void;
+  selectedDepartmentId: number | null;
+  setSelectedDepartmentId: (
+    value: number | null
+  ) => void;
 };
 
 export function useRegistryFilters({
@@ -47,6 +51,8 @@ export function useRegistryFilters({
   searchTerm,
   setSearchTerm,
   setActivePage,
+  selectedDepartmentId,
+  setSelectedDepartmentId,
 }: UseRegistryFiltersOptions) {
   const [
     dashboardDocumentFilter,
@@ -60,13 +66,6 @@ export function useRegistryFilters({
     setDashboardMetadataFilter,
   ] = useState<DashboardMetadataFilter>(
     "ALL"
-  );
-
-  const [
-    selectedDepartmentId,
-    setSelectedDepartmentId,
-  ] = useState<number | null>(
-    null
   );
 
   const openDepartmentRecords = (

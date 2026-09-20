@@ -18,7 +18,6 @@ type DepartmentForm = {
 
 type UseDepartmentManagementOptions = {
   canManageDepartments: boolean;
-  selectedDepartmentId: number | null;
   setSelectedDepartmentId: (
     value: number | null
   ) => void;
@@ -26,7 +25,6 @@ type UseDepartmentManagementOptions = {
 
 export function useDepartmentManagement({
   canManageDepartments,
-  selectedDepartmentId,
   setSelectedDepartmentId,
 }: UseDepartmentManagementOptions) {
   const [departments, setDepartments] =
@@ -232,12 +230,7 @@ export function useDepartmentManagement({
         );
       }
 
-      if (
-        selectedDepartmentId ===
-        department.id
-      ) {
-        setSelectedDepartmentId(null);
-      }
+      setSelectedDepartmentId(null);
 
       await refreshDepartments();
 

@@ -8,6 +8,18 @@ export const getDocuments = async (): Promise<Response> => {
     }
   );
 };
+
+export const getMetadataDocuments = async (
+  metadataId: string
+): Promise<Response> => {
+  return apiFetch(
+    `/api/metadata/${metadataId}/documents`,
+    {
+      method: "GET",
+    }
+  );
+};
+
 export const uploadDocument = async (
   file: File
 ): Promise<Response> => {
@@ -26,6 +38,7 @@ export const uploadDocument = async (
     }
   );
 };
+
 export const getDocumentFile = async (
   documentId: number
 ): Promise<Response> => {
@@ -36,6 +49,7 @@ export const getDocumentFile = async (
     }
   );
 };
+
 export const reviewDocument = async (
   documentId: number,
   payload: unknown
@@ -48,4 +62,3 @@ export const reviewDocument = async (
     }
   );
 };
-

@@ -87,7 +87,7 @@ VALUES (
     FALSE, TRUE, TRUE, TRUE,
     FALSE, TRUE, FALSE,
     '{"pattern": "^[A-Z]{2,10}-\\d{1,6}$"}'::jsonb,
-    '{}'::jsonb, NULL, NULL
+    '{}'::jsonb, NULL, '{}'::jsonb, NULL
 );
 
 -- title
@@ -104,7 +104,7 @@ VALUES (
     FALSE, TRUE, TRUE, TRUE,
     FALSE, TRUE, FALSE,
     '{}'::jsonb,
-    '{}'::jsonb, NULL, NULL
+    '{}'::jsonb, NULL, '{}'::jsonb, NULL
 );
 
 -- document_date
@@ -121,7 +121,7 @@ VALUES (
     FALSE, TRUE, TRUE, TRUE,
     FALSE, TRUE, FALSE,
     '{}'::jsonb,
-    '{}'::jsonb, NULL, NULL
+    '{}'::jsonb, NULL, '{}'::jsonb, NULL
 );
 
 -- year
@@ -138,7 +138,7 @@ VALUES (
     FALSE, TRUE, TRUE, TRUE,
     FALSE, TRUE, FALSE,
     '{"min": 1, "max": 9999}'::jsonb,
-    '{}'::jsonb, NULL, NULL
+    '{}'::jsonb, NULL, '{}'::jsonb, NULL
 );
 
 -- person_name
@@ -155,7 +155,7 @@ VALUES (
     TRUE, TRUE, TRUE, TRUE,
     FALSE, TRUE, FALSE,
     '{}'::jsonb,
-    '{}'::jsonb, NULL, NULL
+    '{}'::jsonb, NULL, '{}'::jsonb, NULL
 );
 
 -- department
@@ -172,7 +172,7 @@ VALUES (
     FALSE, TRUE, TRUE, TRUE,
     FALSE, TRUE, FALSE,
     '{}'::jsonb,
-    '{}'::jsonb, NULL, NULL
+    '{}'::jsonb, NULL, '{}'::jsonb, NULL
 );
 
 -- document_type
@@ -189,7 +189,7 @@ VALUES (
     FALSE, TRUE, TRUE, TRUE,
     FALSE, TRUE, FALSE,
     '{}'::jsonb,
-    '{}'::jsonb, NULL, NULL
+    '{}'::jsonb, NULL, '{}'::jsonb, NULL
 );
 
 -- section
@@ -206,7 +206,7 @@ VALUES (
     FALSE, TRUE, TRUE, TRUE,
     FALSE, TRUE, FALSE,
     '{}'::jsonb,
-    '{}'::jsonb, NULL, NULL
+    '{}'::jsonb, NULL, '{}'::jsonb, NULL
 );
 
 -- description
@@ -223,7 +223,7 @@ VALUES (
     FALSE, TRUE, TRUE, TRUE,
     FALSE, TRUE, FALSE,
     '{}'::jsonb,
-    '{}'::jsonb, NULL, NULL
+    '{}'::jsonb, NULL, '{}'::jsonb, NULL
 );
 
 -- ------------------------------------------------------------

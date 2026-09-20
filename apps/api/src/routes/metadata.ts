@@ -168,6 +168,115 @@ export function createMetadataRouter(pool: Pool) {
     }
   }
 );
+router.get(
+  "/:metadataId/documents",
+  requireAuthentication(pool),
+  requireOrganizationContext(pool),
+  async (
+    req: Request,
+    res: Response
+  ) => {
+    const organizationId = getOrganizationId(req, res);
+
+    if (organizationId === null) {
+      return;
+    }
+
+    const metadataId =
+      Number(
+        req.params.metadataId
+      );
+
+    if (
+      !Number.isInteger(metadataId) ||
+      metadataId <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "Invalid metadata record ID",
+      });
+    }
+
+    try {
+      const metadataResult =
+        await pool.query(
+          `
+            SELECT
+              id,
+              reference_code,
+              title
+            FROM metadata_records
+            WHERE id = $1
+              AND organization_id = $2
+            LIMIT 1
+          `,
+          [
+            metadataId,
+            organizationId,
+          ]
+        );
+
+      if (
+        metadataResult.rowCount === 0
+      ) {
+        return res.status(404).json({
+          success: false,
+          error:
+            "Metadata record not found",
+        });
+      }
+
+      const documentsResult =
+        await pool.query(
+          `
+            SELECT
+              doc.id,
+              doc.document_code,
+              doc.filename,
+              doc.title,
+              doc.document_date,
+              doc.upload_date,
+              doc.year,
+              doc.person_name,
+              doc.file_type,
+              doc.file_size,
+              doc.status,
+              doc.upload_number
+            FROM documents doc
+            WHERE doc.metadata_record_id = $1
+              AND doc.organization_id = $2
+            ORDER BY
+              doc.upload_date DESC,
+              doc.id DESC
+          `,
+          [
+            metadataId,
+            organizationId,
+          ]
+        );
+
+      return res.json({
+        success: true,
+        metadata:
+          metadataResult.rows[0],
+        documents:
+          documentsResult.rows,
+      });
+    } catch (error) {
+      console.error(
+        "Metadata documents query failed:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          "Unable to retrieve documents for metadata record",
+      });
+    }
+  }
+);
 router.post(
   "/",
   requireAuthentication(pool),
@@ -384,3 +493,4 @@ router.post(
 
   return router;
 }
+
