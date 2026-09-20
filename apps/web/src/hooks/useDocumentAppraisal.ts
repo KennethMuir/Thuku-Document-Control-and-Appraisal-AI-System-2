@@ -9,13 +9,18 @@ import {
 } from "react";
 
 import {
-  reviewDocument,
+  cancelDocumentUpload,
+  confirmDocumentUpload,
   uploadDocument,
 } from "@/lib/api/documents";
 
 import type { DomainRelationshipSelection } from "@/components/metadata/DomainRelationshipSelector";
 
-import type { AdditionalMetadataField, MetadataRecord } from "@/types/metadata";
+import type {
+  AdditionalMetadataField,
+  MetadataRecord,
+} from "@/types/metadata";
+
 import type { UploadedAppraisal } from "@/types/appraisal";
 import type { UploadedDocument } from "@/types/documents";
 
@@ -91,6 +96,11 @@ export function useDocumentAppraisal({
     selectedFile,
     setSelectedFile,
   ] = useState<File | null>(null);
+
+  const [
+    uploadToken,
+    setUploadToken,
+  ] = useState<string | null>(null);
 
   const [
     uploadedDocument,
@@ -170,20 +180,79 @@ export function useDocumentAppraisal({
         appraisalMetadataForm.description.trim()
     );
 
-  const closeUploadModal = () => {
-    if (uploading) {
-      return;
-    }
-
-    setShowUploadModal(false);
+  const resetUploadState = () => {
     setSelectedFile(null);
-    setUploadError("");
+    setUploadToken(null);
     setUploadedDocument(null);
     setUploadedAppraisal(null);
+    setUploading(false);
+    setUploadError("");
     setReviewingDecision(false);
     setReviewError("");
     setIsCreatingNewMetadata(false);
     setAppraisalDomainRelationships([]);
+    setAppraisalAdditionalMetadata([]);
+    setAppraisalCommittedAdditionalMetadata([]);
+    setAppraisalMetadataForm({
+      referenceCode: "",
+      title: "",
+      documentDate: "",
+      year: "",
+      personName: "",
+      departmentId: "",
+      documentTypeId: "",
+      section: "",
+      description: "",
+    });
+  };
+
+  const closeUploadModal = async () => {
+    if (uploading || reviewingDecision) {
+      return;
+    }
+
+    const activeUploadToken =
+      uploadToken;
+
+    if (activeUploadToken) {
+      try {
+        setReviewError("");
+
+        const response =
+          await cancelDocumentUpload(
+            activeUploadToken
+          );
+
+        const data =
+          await response.json().catch(
+            () => null
+          );
+
+        if (
+          !response.ok ||
+          !data?.success
+        ) {
+          throw new Error(
+            data?.error ||
+              data?.message ||
+              "Unable to cancel the provisional document upload."
+          );
+        }
+
+        setUploadToken(null);
+      } catch (error) {
+        setReviewError(
+          error instanceof Error
+            ? error.message
+            : "Unable to cancel the provisional document upload."
+        );
+
+        return;
+      }
+    }
+
+    setShowUploadModal(false);
+    resetUploadState();
     setDomainRelationshipsError("");
   };
 
@@ -196,7 +265,10 @@ export function useDocumentAppraisal({
     setUploadError("");
     setUploadedDocument(null);
     setUploadedAppraisal(null);
+    setUploadToken(null);
     setAppraisalDomainRelationships([]);
+    setAppraisalAdditionalMetadata([]);
+    setAppraisalCommittedAdditionalMetadata([]);
 
     if (!file) {
       setSelectedFile(null);
@@ -253,9 +325,13 @@ export function useDocumentAppraisal({
       setUploadError("");
       setUploadedDocument(null);
       setUploadedAppraisal(null);
+      setUploadToken(null);
       setReviewingDecision(false);
       setReviewError("");
+      setIsCreatingNewMetadata(false);
       setAppraisalDomainRelationships([]);
+      setAppraisalAdditionalMetadata([]);
+      setAppraisalCommittedAdditionalMetadata([]);
 
       const response =
         await uploadDocument(
@@ -276,6 +352,16 @@ export function useDocumentAppraisal({
       }
 
       if (
+        !data.uploadToken ||
+        typeof data.uploadToken !==
+          "string"
+      ) {
+        throw new Error(
+          "The upload was processed, but the API did not return a provisional upload token."
+        );
+      }
+
+      if (
         !data.document ||
         typeof data.document !==
           "object"
@@ -284,6 +370,10 @@ export function useDocumentAppraisal({
           "Document uploaded, but the API returned an invalid document response."
         );
       }
+
+      setUploadToken(
+        data.uploadToken
+      );
 
       setUploadedDocument(
         data.document as UploadedDocument
@@ -418,7 +508,11 @@ export function useDocumentAppraisal({
         fileInput.value = "";
       }
 
-      await loadData();
+      /*
+       * Important:
+       * The document is still provisional at this point.
+       * Do not refresh the registry/dashboard until confirmation.
+       */
     } catch (error) {
       setUploadError(
         error instanceof Error
@@ -490,7 +584,7 @@ export function useDocumentAppraisal({
     referenceCode: string
   ) => ({
     referenceCode:
-      referenceCode || null,
+      referenceCode.trim() || null,
 
     personName:
       appraisalMetadataForm.personName.trim() ||
@@ -536,14 +630,9 @@ export function useDocumentAppraisal({
       }
 
       if (
-        !uploadedDocument?.id ||
+        !uploadToken ||
         !uploadedAppraisal
       ) {
-        return;
-      }
-
-      if (isCreatingNewMetadata) {
-        closeUploadModal();
         return;
       }
 
@@ -559,12 +648,20 @@ export function useDocumentAppraisal({
             ""
         ).trim();
 
-      if (
-        !metadataRecordId &&
-        !referenceCode
-      ) {
+      if (!referenceCode) {
         setReviewError(
           "A metadata reference code has not been assigned to this document."
+        );
+
+        return;
+      }
+
+      if (
+        metadataRecordId === null &&
+        !appraisalRequiredFieldsComplete
+      ) {
+        setReviewError(
+          "Please complete the required metadata fields before registering this document."
         );
 
         return;
@@ -575,18 +672,10 @@ export function useDocumentAppraisal({
         setReviewError("");
 
         const response =
-          await reviewDocument(
-            Number(
-              uploadedDocument.id
-            ),
+          await confirmDocumentUpload(
+            uploadToken,
             {
-              decision:
-                metadataRecordId !== null
-                  ? "APPROVE"
-                  : "CREATE_METADATA",
-
               metadataRecordId,
-
               metadata:
                 buildAppraisalMetadata(
                   referenceCode
@@ -605,19 +694,20 @@ export function useDocumentAppraisal({
             data.error ||
               data.message ||
               data.details ||
-              "Unable to save the appraisal."
+              "Unable to register the document."
           );
         }
 
         if (data.document) {
           setUploadedDocument(
-            data.document
+            data.document as UploadedDocument
           );
         }
 
         const persistedMetadataId =
           Number(
             data.metadata?.id ??
+              data.appraisal?.metadataRecordId ??
               metadataRecordId ??
               0
           );
@@ -634,15 +724,19 @@ export function useDocumentAppraisal({
           );
         }
 
+        setUploadToken(null);
+
         await loadData();
 
         setReviewError("");
-        closeUploadModal();
+        setShowUploadModal(false);
+        resetUploadState();
+        setDomainRelationshipsError("");
       } catch (error) {
         setReviewError(
           error instanceof Error
             ? error.message
-            : "Unable to save the appraisal."
+            : "Unable to register the document."
         );
       } finally {
         setReviewingDecision(false);
@@ -655,10 +749,7 @@ export function useDocumentAppraisal({
         return;
       }
 
-      if (
-        !uploadedDocument?.id ||
-        !uploadedAppraisal
-      ) {
+      if (!uploadedAppraisal) {
         return;
       }
 
@@ -681,102 +772,66 @@ export function useDocumentAppraisal({
         !appraisalRequiredFieldsComplete
       ) {
         setReviewError(
-          "Please complete the required metadata fields before creating the metadata record."
+          "Please complete the required metadata fields before registering the document."
         );
 
         return;
       }
 
-      try {
-        setReviewingDecision(true);
-        setReviewError("");
+      /*
+       * Creating new metadata is intentionally provisional.
+       * The actual metadata record and document are created together
+       * by handleDoneAppraisal() -> confirmDocumentUpload().
+       */
+      setReviewError("");
 
-        const response =
-          await reviewDocument(
-            Number(
-              uploadedDocument.id
-            ),
-            {
-              decision:
-                "CREATE_METADATA",
-
-              metadataRecordId:
-                uploadedAppraisal.metadataRecordId,
-
-              metadata:
-                buildAppraisalMetadata(
-                  referenceCode
-                ),
-            }
-          );
-
-        const data =
-          await response.json();
-
-        if (
-          !response.ok ||
-          !data.success
-        ) {
-          throw new Error(
-            data.error ||
-              data.message ||
-              data.details ||
-              "Unable to create and link the new metadata record."
-          );
-        }
-
-        if (data.document) {
-          setUploadedDocument(
-            data.document
-          );
-        }
-
-        const persistedMetadataId =
-          Number(
-            data.metadata?.id ??
-              uploadedAppraisal.metadataRecordId ??
-              0
-          );
-
-        if (
-          Number.isInteger(
-            persistedMetadataId
-          ) &&
-          persistedMetadataId > 0
-        ) {
-          await saveMetadataDomainRelationships(
-            persistedMetadataId,
-            appraisalDomainRelationships
-          );
-        }
-
-        await loadData();
-
-        setUploadedAppraisal(
-          (current) =>
-            current
-              ? {
-                  ...current,
-                  decision:
-                    "NEW_METADATA_CREATED",
-                  metadataRecordId:
-                    persistedMetadataId ||
-                    current.metadataRecordId,
-                }
-              : current
-        );
-
-        setIsCreatingNewMetadata(false);
-        setReviewError("");
-      } catch (error) {
-        setReviewError(
-          error instanceof Error
-            ? error.message
-            : "Unable to create and link the new metadata record."
-        );
-      } finally {
-        setReviewingDecision(false);
-      }
+      setUploadedAppraisal(
+        (current) =>
+          current
+            ? {
+                ...current,
+                decision:
+                  "PENDING_CONFIRMATION",
+                metadataRecordId:
+                  null,
+                metadata: {
+                  ...(current.metadata ?? {}),
+                  reference_code:
+                    referenceCode,
+                  title:
+                    appraisalMetadataForm.title.trim() ||
+                    null,
+                  document_date:
+                    normalizeAppraisalDocumentDate(
+                      appraisalMetadataForm.documentDate
+                    ) || null,
+                  year:
+                    appraisalMetadataForm.year.trim()
+                      ? Number(
+                          appraisalMetadataForm.year
+                        )
+                      : null,
+                  person_name:
+                    appraisalMetadataForm.personName.trim() ||
+                    null,
+                  department_id:
+                    appraisalMetadataForm.departmentId ||
+                    null,
+                  document_type_id:
+                    appraisalMetadataForm.documentTypeId ||
+                    null,
+                  section:
+                    appraisalMetadataForm.section.trim() ||
+                    null,
+                  description:
+                    appraisalMetadataForm.description.trim() ||
+                    null,
+                  additional_metadata:
+                    buildAppraisalAdditionalMetadata(),
+                },
+              }
+            : current
+      );
     };
 
   const handleAppraisalReview =
@@ -790,15 +845,27 @@ export function useDocumentAppraisal({
       }
 
       if (
-        !uploadedDocument?.id ||
+        !uploadToken ||
         !uploadedAppraisal
       ) {
         return;
       }
 
+      setReviewError("");
+
       if (decision === "REJECT") {
-        setReviewError("");
         setIsCreatingNewMetadata(true);
+
+        setUploadedAppraisal(
+          (current) =>
+            current
+              ? {
+                  ...current,
+                  decision:
+                    "PENDING_CONFIRMATION",
+                }
+              : current
+        );
 
         return;
       }
@@ -807,99 +874,28 @@ export function useDocumentAppraisal({
         !uploadedAppraisal.metadataRecordId
       ) {
         setReviewError(
-          "There is no metadata record available to approve."
+          "There is no matched metadata record available to link. Review the metadata and create a new metadata record instead."
         );
 
         return;
       }
 
-      try {
-        setReviewingDecision(true);
-        setReviewError("");
+      /*
+       * APPROVE only records the human's provisional decision.
+       * The database is changed only by Done -> confirmDocumentUpload().
+       */
+      setIsCreatingNewMetadata(false);
 
-        const response =
-          await reviewDocument(
-            Number(
-              uploadedDocument.id
-            ),
-            {
-              decision: "APPROVE",
-
-              metadataRecordId:
-                uploadedAppraisal.metadataRecordId,
-
-              metadata:
-                buildAppraisalMetadata(
-                  appraisalMetadataForm.referenceCode.trim()
-                ),
-            }
-          );
-
-        const data =
-          await response.json();
-
-        if (
-          !response.ok ||
-          !data.success
-        ) {
-          throw new Error(
-            data.error ||
-              data.message ||
-              data.details ||
-              "Unable to approve the appraisal decision."
-          );
-        }
-
-        if (data.document) {
-          setUploadedDocument(
-            data.document
-          );
-        }
-
-        const persistedMetadataId =
-          Number(
-            data.metadata?.id ??
-              uploadedAppraisal.metadataRecordId ??
-              0
-          );
-
-        if (
-          Number.isInteger(
-            persistedMetadataId
-          ) &&
-          persistedMetadataId > 0
-        ) {
-          await saveMetadataDomainRelationships(
-            persistedMetadataId,
-            appraisalDomainRelationships
-          );
-        }
-
-        await loadData();
-
-        setUploadedAppraisal(
-          (current) =>
-            current
-              ? {
-                  ...current,
-                  decision: "LINKED",
-                  metadataRecordId:
-                    persistedMetadataId ||
-                    current.metadataRecordId,
-                }
-              : current
-        );
-
-        setReviewError("");
-      } catch (error) {
-        setReviewError(
-          error instanceof Error
-            ? error.message
-            : "Unable to approve the appraisal decision."
-        );
-      } finally {
-        setReviewingDecision(false);
-      }
+      setUploadedAppraisal(
+        (current) =>
+          current
+            ? {
+                ...current,
+                decision:
+                  "PENDING_CONFIRMATION",
+              }
+            : current
+      );
     };
 
   const uploadFieldEntries =
@@ -922,15 +918,20 @@ export function useDocumentAppraisal({
 
   const appraisalDecisionLabel =
     uploadedAppraisal?.decision ===
-    "LINKED"
-      ? "LINKED"
+    "PENDING_CONFIRMATION"
+      ? isCreatingNewMetadata
+        ? "NEW METADATA — READY TO REGISTER"
+        : "MATCH APPROVED — READY TO REGISTER"
       : uploadedAppraisal?.decision ===
-          "NEW_METADATA_CREATED"
-        ? "NEW METADATA CREATED & LINKED"
+          "LINKED"
+        ? "LINKED"
         : uploadedAppraisal?.decision ===
-            "REJECT"
-          ? "REJECTED"
-          : "REVIEW REQUIRED";
+            "NEW_METADATA_CREATED"
+          ? "NEW METADATA CREATED & LINKED"
+          : uploadedAppraisal?.decision ===
+              "REJECT"
+            ? "REJECTED"
+            : "REVIEW REQUIRED";
 
   const appraisalIsLinked =
     uploadedAppraisal?.decision ===
@@ -945,6 +946,9 @@ export function useDocumentAppraisal({
 
     selectedFile,
     setSelectedFile,
+
+    uploadToken,
+    setUploadToken,
 
     uploadedDocument,
     setUploadedDocument,

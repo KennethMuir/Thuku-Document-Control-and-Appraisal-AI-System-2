@@ -54,5 +54,6 @@ export function createApiInfrastructure() {
     pool,
     localFileStorage,
     upload,
+    temporaryRoot,
   };
 }

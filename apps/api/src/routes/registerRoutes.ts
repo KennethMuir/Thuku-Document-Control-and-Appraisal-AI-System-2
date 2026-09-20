@@ -1,6 +1,8 @@
 import type { Express } from "express";
 
-import { findBestMetadataMatch } from "../services/metadataMatching.js";
+import {
+  findBestMetadataMatch,
+} from "../services/metadataMatching.js";
 
 import { createAuthRouter } from "./auth.js";
 import { createUsersRouter } from "./users.js";
@@ -25,7 +27,8 @@ export function registerRoutes(
   app: Express,
   pool: Pool,
   localFileStorage: LocalFileStorage,
-  upload: multer.Multer
+  upload: multer.Multer,
+  temporaryRoot: string
 ): void {
   app.use(
     "/api/auth",
@@ -104,10 +107,8 @@ export function registerRoutes(
       pool,
       upload,
       localFileStorage,
-      findBestMetadataMatch
+      findBestMetadataMatch,
+      temporaryRoot
     )
   );
 }
-
-
-

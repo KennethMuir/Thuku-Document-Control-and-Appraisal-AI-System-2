@@ -1224,7 +1224,7 @@ export function Modals({
                   ref={modalCloseButtonRef}
                   type="button"
                   onClick={closeUploadModal}
-                  disabled={uploading}
+                  disabled={uploading || reviewingDecision}
                   aria-label="Close document upload dialog"
                   className="ml-4 rounded-lg p-2 text-2xl leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -1316,7 +1316,7 @@ export function Modals({
                     <button
                       type="button"
                       onClick={closeUploadModal}
-                      disabled={uploading}
+                      disabled={uploading || reviewingDecision}
                       className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Cancel
@@ -1363,11 +1363,11 @@ export function Modals({
                     </div>
 
                     <h3 className="mt-4 text-xl font-bold">
-                      Document Uploaded
+                      Document Ready for Registration
                     </h3>
 
                     <p className="mt-2 text-sm text-slate-500">
-                      The document has been securely added to the system.
+                      The document is provisionally prepared. Review the extracted metadata and confirm registration when ready.
                     </p>
                   </div>
 

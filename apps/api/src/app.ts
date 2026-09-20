@@ -13,6 +13,7 @@ const {
   pool,
   localFileStorage,
   upload,
+  temporaryRoot,
 } = createApiInfrastructure();
 
 const webOrigin =
@@ -32,7 +33,8 @@ registerRoutes(
   app,
   pool,
   localFileStorage,
-  upload
+  upload,
+  temporaryRoot
 );
 
 export default app;

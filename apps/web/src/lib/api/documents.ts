@@ -39,6 +39,39 @@ export const uploadDocument = async (
   );
 };
 
+export const confirmDocumentUpload = async (
+  uploadToken: string,
+  payload: {
+    metadataRecordId?: number | null;
+    metadata: unknown;
+  }
+): Promise<Response> => {
+  return apiFetch(
+    "/api/documents/upload/confirm",
+    {
+      method: "POST",
+      json: {
+        uploadToken,
+        metadataRecordId:
+          payload.metadataRecordId ?? null,
+        metadata:
+          payload.metadata,
+      },
+    }
+  );
+};
+
+export const cancelDocumentUpload = async (
+  uploadToken: string
+): Promise<Response> => {
+  return apiFetch(
+    `/api/documents/upload/${encodeURIComponent(uploadToken)}`,
+    {
+      method: "DELETE",
+    }
+  );
+};
+
 export const getDocumentFile = async (
   documentId: number
 ): Promise<Response> => {
