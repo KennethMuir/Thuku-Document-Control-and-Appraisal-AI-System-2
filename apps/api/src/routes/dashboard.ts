@@ -1,7 +1,11 @@
 import { Router, type Request, type Response } from "express";
 import type { Pool } from "pg";
 
-import { requireAuthentication } from "../middleware/auth.js";
+import {
+  requireAuthentication,
+  requireOrganizationContext,
+  type AuthenticatedRequest,
+} from "../middleware/auth.js";
 
 export function createDashboardRouter(pool: Pool) {
   const router = Router();
@@ -9,10 +13,22 @@ export function createDashboardRouter(pool: Pool) {
   router.get(
     "/",
     requireAuthentication(pool),
+    requireOrganizationContext(pool),
     async (
-      _req: Request,
+      req: Request,
       res: Response
     ) => {
+      const organizationId =
+        (req as AuthenticatedRequest)
+          .authOrganization?.organizationId;
+
+      if (typeof organizationId !== "number" || !Number.isInteger(organizationId) || organizationId <= 0) {
+        return res.status(403).json({
+          success: false,
+          error: "Organization context is required.",
+        });
+      }
+
       try {
         const result =
           await pool.query(`
@@ -20,46 +36,53 @@ export function createDashboardRouter(pool: Pool) {
               (
                 SELECT COUNT(*)
                 FROM documents
+                WHERE organization_id = $1
               ) AS documents,
 
               (
                 SELECT COUNT(*)
                 FROM metadata_records
+                WHERE organization_id = $1
               ) AS metadata,
 
               (
                 SELECT COUNT(*)
                 FROM departments
+                WHERE organization_id = $1
               ) AS departments,
 
               (
                 SELECT COUNT(*)
                 FROM documents
-                WHERE metadata_record_id
+                WHERE organization_id = $1
+                  AND metadata_record_id
                   IS NOT NULL
               ) AS linked,
 
               (
                 SELECT COUNT(*)
                 FROM metadata_records
-                WHERE status =
+                WHERE organization_id = $1
+                  AND status =
                   'AWAITING_DOCUMENT'
               ) AS awaiting,
 
               (
                 SELECT COUNT(*)
                 FROM documents
-                WHERE status =
+                WHERE organization_id = $1
+                  AND status =
                   'REVIEW_REQUIRED'
               ) AS review,
 
               (
                 SELECT COUNT(*)
                 FROM documents
-                WHERE metadata_record_id
+                WHERE organization_id = $1
+                  AND metadata_record_id
                   IS NULL
               ) AS unlinked
-          `);
+          `, [organizationId]);
 
         res.json({
           success: true,

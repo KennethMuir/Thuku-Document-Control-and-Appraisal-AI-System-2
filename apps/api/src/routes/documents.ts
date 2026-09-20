@@ -1,5 +1,5 @@
 import { createAuditLog } from "../services/audit.js";
-import { parseReviewMetadata } from "../services/metadataUtils.js";
+import { parseReviewMetadata, sanitizeAdditionalMetadata } from "../services/metadataUtils.js";
 import {
   Router,
   type Request,
@@ -12,6 +12,7 @@ import { LocalFileStorage } from "../services/storage.js";
 
 import {
   requireAuthentication,
+  requireOrganizationContext,
   requireRole,
   type AuthenticatedRequest,
 } from "../middleware/auth.js";
@@ -22,16 +23,49 @@ export function createDocumentsRouter(
 ) {
   const router = Router();
 
+  const getOrganizationId = (
+    req: Request,
+    res: Response
+  ): number | null => {
+    const organizationId =
+      (req as AuthenticatedRequest)
+        .authOrganization?.organizationId;
+
+    if (typeof organizationId !== "number" || !Number.isInteger(organizationId) || organizationId <= 0) {
+      res.status(403).json({
+        success: false,
+        error: "Organization context is required.",
+      });
+      return null;
+    }
+
+    return organizationId;
+  };
+
+  const getActorUserId = (
+    req: Request
+  ): number | null => {
+    const authUser =
+      (req as AuthenticatedRequest).authUser;
+
+    return authUser?.id ?? null;
+  };
+
 router.get(
   "/",
   requireAuthentication(pool),
+  requireOrganizationContext(pool),
   async (
-    _req: Request,
+    req: Request,
     res: Response
   ) => {
+    const organizationId = getOrganizationId(req, res);
+    if (organizationId === null) {
+      return;
+    }
+
     try {
-      const result =
-        await pool.query(`
+      const result = await pool.query(`
           SELECT
             doc.id,
             doc.document_code,
@@ -69,6 +103,7 @@ router.get(
           LEFT JOIN metadata_records mr
             ON mr.id =
                doc.metadata_record_id
+            AND mr.organization_id = doc.organization_id
 
           LEFT JOIN departments d
             ON d.id =
@@ -78,9 +113,11 @@ router.get(
             ON dt.id =
                doc.document_type_id
 
+          WHERE doc.organization_id = $1
+
           ORDER BY
             doc.upload_date DESC
-        `);
+        `, [organizationId]);
 
       res.json({
         success: true,
@@ -105,11 +142,17 @@ router.get(
 router.post(
   "/:documentId/link",
   requireAuthentication(pool),
+  requireOrganizationContext(pool),
   requireRole("ADMIN", "APPRAISER"),
   async (
     req: Request,
     res: Response
   ) => {
+    const organizationId = getOrganizationId(req, res);
+    if (organizationId === null) {
+      return;
+    }
+
     const documentId =
       Number(
         req.params.documentId
@@ -160,9 +203,10 @@ router.post(
             SELECT *
             FROM documents
             WHERE id = $1
+              AND organization_id = $2
             FOR UPDATE
           `,
-          [documentId]
+          [documentId, organizationId]
         );
 
       if (
@@ -186,9 +230,10 @@ router.post(
             SELECT *
             FROM metadata_records
             WHERE id = $1
+              AND organization_id = $2
             FOR UPDATE
           `,
-          [metadataRecordId]
+          [metadataRecordId, organizationId]
         );
 
       if (
@@ -244,6 +289,7 @@ router.post(
             updated_at = NOW()
 
           WHERE id = $4
+            AND organization_id = $5
         `,
         [
           metadataRecordId,
@@ -252,6 +298,7 @@ router.post(
           metadata.document_type_id ||
             null,
           documentId,
+          organizationId,
         ]
       );
 
@@ -263,8 +310,9 @@ router.post(
               'DOCUMENT_LINKED',
             updated_at = NOW()
           WHERE id = $1
+            AND organization_id = $2
         `,
-        [metadataRecordId]
+        [metadataRecordId, organizationId]
       );
 
       await client.query(
@@ -283,6 +331,8 @@ router.post(
 
       await createAuditLog(
         client,
+        organizationId,
+        getActorUserId(req),
         documentId,
         metadataRecordId,
         "DOCUMENT_LINKED",
@@ -337,8 +387,9 @@ router.post(
                  doc.document_type_id
 
             WHERE doc.id = $1
+              AND doc.organization_id = $2
           `,
-          [documentId]
+          [documentId, organizationId]
         );
 
       return res.json({
@@ -377,11 +428,17 @@ router.post(
   router.post(
   "/:documentId/review",
   requireAuthentication(pool),
+  requireOrganizationContext(pool),
   requireRole("ADMIN", "APPRAISER"),
   async (
     req: Request,
     res: Response
   ) => {
+    const organizationId = getOrganizationId(req, res);
+    if (organizationId === null) {
+      return;
+    }
+
     const documentId =
       Number(
         req.params.documentId
@@ -476,9 +533,10 @@ router.post(
             SELECT *
             FROM documents
             WHERE id = $1
+              AND organization_id = $2
             FOR UPDATE
           `,
-          [documentId]
+          [documentId, organizationId]
         );
 
       if (
@@ -545,6 +603,127 @@ router.post(
 
       /*
        * --------------------------------------------------
+       * M18 APPRAISAL DECISION CONTRACT
+       * --------------------------------------------------
+       *
+       * APPROVE:
+       * Persist the reviewer's edited metadata and link
+       * the document to the existing metadata record.
+       *
+       * CREATE_METADATA:
+       * Explicitly create a new metadata record from the
+       * reviewer's edited appraisal form and link the
+       * document to that new record.
+       *
+       * REJECT:
+       * Reject only the AI recommendation. It does not
+       * create or modify a metadata record.
+       */
+
+      const normalizeOptionalString =
+        (value: unknown): string | null => {
+          const normalized =
+            String(value ?? "").trim();
+
+          return normalized.length > 0
+            ? normalized
+            : null;
+        };
+
+      const normalizeOptionalInteger =
+        (
+          value: unknown,
+          fieldName: string
+        ): number | null => {
+          if (
+            value === null ||
+            value === undefined ||
+            String(value).trim() === ""
+          ) {
+            return null;
+          }
+
+          const normalized =
+            Number(value);
+
+          if (
+            !Number.isInteger(
+              normalized
+            )
+          ) {
+            throw new Error(
+              `${fieldName} must be an integer.`
+            );
+          }
+
+          return normalized;
+        };
+
+      const validateOrganizationReferences =
+        async (
+          departmentId: number | null,
+          documentTypeId: number | null
+        ) => {
+          if (departmentId !== null) {
+            const department =
+              await client.query(
+                `
+                  SELECT id
+                  FROM departments
+                  WHERE id = $1
+                    AND organization_id = $2
+                `,
+                [
+                  departmentId,
+                  organizationId,
+                ]
+              );
+
+            if (
+              department.rowCount === 0
+            ) {
+              return {
+                valid: false,
+                error:
+                  "Department does not belong to your organization.",
+              };
+            }
+          }
+
+          if (documentTypeId !== null) {
+            const documentType =
+              await client.query(
+                `
+                  SELECT id
+                  FROM document_types
+                  WHERE id = $1
+                    AND organization_id = $2
+                `,
+                [
+                  documentTypeId,
+                  organizationId,
+                ]
+              );
+
+            if (
+              documentType.rowCount === 0
+            ) {
+              return {
+                valid: false,
+                error:
+                  "Document type does not belong to your organization.",
+              };
+            }
+          }
+
+          return {
+            valid: true,
+            error: null,
+          };
+        };
+
+      /*
+       * --------------------------------------------------
        * APPROVE & LINK
        * --------------------------------------------------
        */
@@ -558,10 +737,12 @@ router.post(
               SELECT *
               FROM metadata_records
               WHERE id = $1
+                AND organization_id = $2
               FOR UPDATE
             `,
             [
               parsedMetadataRecordId,
+              organizationId,
             ]
           );
 
@@ -580,46 +761,128 @@ router.post(
           });
         }
 
-        const metadataResult =
-          await client.query(
-            `
-              SELECT
-                mr.*,
-
-                d.name
-                  AS department_name,
-                d.code
-                  AS department_code,
-
-                dt.name
-                  AS document_type_name
-
-              FROM metadata_records mr
-
-              LEFT JOIN departments d
-                ON d.id =
-                   mr.department_id
-
-              LEFT JOIN document_types dt
-                ON dt.id =
-                   mr.document_type_id
-
-              WHERE mr.id = $1
-            `,
-            [
-              parsedMetadataRecordId,
-            ]
-          );
-
-        const metadata =
-          metadataResult.rows[0];
+        let metadata =
+          metadataLockResult.rows[0];
 
         /*
-         * NO existing-link check.
+         * If the frontend supplied the review form,
+         * persist its values exactly, including cleared
+         * fields represented as null.
          *
-         * A metadata record can be linked
-         * to any number of documents.
+         * reference_code is intentionally not changed.
          */
+        if (submittedMetadata) {
+          const departmentId =
+            normalizeOptionalInteger(
+              submittedMetadata.departmentId,
+              "Department"
+            );
+
+          const documentTypeId =
+            normalizeOptionalInteger(
+              submittedMetadata.documentTypeId,
+              "Document type"
+            );
+
+          const year =
+            normalizeOptionalInteger(
+              submittedMetadata.year,
+              "Year"
+            );
+
+          const references =
+            await validateOrganizationReferences(
+              departmentId,
+              documentTypeId
+            );
+
+          if (!references.valid) {
+            await client.query(
+              "ROLLBACK"
+            );
+
+            return res.status(400).json({
+              success: false,
+              error:
+                references.error,
+            });
+          }
+
+          const additionalMetadata =
+            JSON.stringify(
+              sanitizeAdditionalMetadata(
+                submittedMetadata.additionalMetadata
+              )
+            );
+
+          const updatedMetadataResult =
+            await client.query(
+              `
+                UPDATE metadata_records
+                SET
+                  title = $1,
+                  person_name = $2,
+                  department_id = $3,
+                  document_type_id = $4,
+                  section = $5,
+                  year = $6,
+                  document_date = $7,
+                  description = $8,
+                  additional_metadata = $9::jsonb,
+                  status = 'DOCUMENT_LINKED',
+                  updated_at = NOW()
+                WHERE id = $10
+                  AND organization_id = $11
+                RETURNING *
+              `,
+              [
+                normalizeOptionalString(
+                  submittedMetadata.title
+                ),
+                normalizeOptionalString(
+                  submittedMetadata.personName
+                ),
+                departmentId,
+                documentTypeId,
+                normalizeOptionalString(
+                  submittedMetadata.section
+                ),
+                year,
+                normalizeOptionalString(
+                  submittedMetadata.documentDate
+                ),
+                normalizeOptionalString(
+                  submittedMetadata.description
+                ),
+                additionalMetadata,
+                parsedMetadataRecordId,
+                organizationId,
+              ]
+            );
+
+          metadata =
+            updatedMetadataResult.rows[0];
+        } else {
+          const metadataStatusResult =
+            await client.query(
+              `
+                UPDATE metadata_records
+                SET
+                  status = 'DOCUMENT_LINKED',
+                  updated_at = NOW()
+                WHERE id = $1
+                  AND organization_id = $2
+                RETURNING *
+              `,
+              [
+                parsedMetadataRecordId,
+                organizationId,
+              ]
+            );
+
+          metadata =
+            metadataStatusResult.rows[0];
+        }
 
         const linkedDocumentResult =
           await client.query(
@@ -627,24 +890,12 @@ router.post(
               UPDATE documents
               SET
                 metadata_record_id = $1,
-
-                department_id =
-                  COALESCE(
-                    department_id,
-                    $2
-                  ),
-
-                document_type_id =
-                  COALESCE(
-                    document_type_id,
-                    $3
-                  ),
-
+                department_id = $2,
+                document_type_id = $3,
                 status = 'LINKED',
                 updated_at = NOW()
-
               WHERE id = $4
-
+                AND organization_id = $5
               RETURNING *
             `,
             [
@@ -652,6 +903,7 @@ router.post(
               metadata.department_id,
               metadata.document_type_id,
               documentId,
+              organizationId,
             ]
           );
 
@@ -671,10 +923,12 @@ router.post(
 
         await createAuditLog(
           client,
+          organizationId,
+          getActorUserId(req),
           documentId,
           parsedMetadataRecordId,
           "APPRAISAL_APPROVED",
-          "Human reviewer approved the AI-recommended document-to-metadata match."
+          "Human reviewer approved the document-to-metadata match and persisted the reviewed metadata."
         );
 
         await client.query(
@@ -686,10 +940,275 @@ router.post(
           message:
             "Document successfully linked to the approved metadata record.",
           document:
-            linkedDocumentResult
-              .rows[0],
+            linkedDocumentResult.rows[0],
           metadata,
           decision: "LINKED",
+        });
+      }
+
+      /*
+       * --------------------------------------------------
+       * CREATE NEW METADATA
+       * --------------------------------------------------
+       */
+      if (
+        normalizedDecision ===
+        "CREATE_METADATA"
+      ) {
+        if (!submittedMetadata) {
+          await client.query(
+            "ROLLBACK"
+          );
+
+          return res.status(400).json({
+            success: false,
+            error:
+              "Metadata is required when creating a new metadata record.",
+          });
+        }
+
+        const referenceCode =
+          normalizeOptionalString(
+            submittedMetadata.referenceCode
+          );
+
+        if (!referenceCode) {
+          await client.query(
+            "ROLLBACK"
+          );
+
+          return res.status(400).json({
+            success: false,
+            error:
+              "Reference code is required.",
+          });
+        }
+
+        const duplicateResult =
+          await client.query(
+            `
+              SELECT id
+              FROM metadata_records
+              WHERE LOWER(reference_code) =
+                    LOWER($1)
+                AND organization_id = $2
+              LIMIT 1
+            `,
+            [
+              referenceCode,
+              organizationId,
+            ]
+          );
+
+        if (
+          duplicateResult.rowCount &&
+          duplicateResult.rowCount > 0
+        ) {
+          await client.query(
+            "ROLLBACK"
+          );
+
+          return res.status(409).json({
+            success: false,
+            error:
+              "A metadata record with this reference code already exists.",
+          });
+        }
+
+        const departmentId =
+          normalizeOptionalInteger(
+            submittedMetadata.departmentId,
+            "Department"
+          );
+
+        const documentTypeId =
+          normalizeOptionalInteger(
+            submittedMetadata.documentTypeId,
+            "Document type"
+          );
+
+        const year =
+          normalizeOptionalInteger(
+            submittedMetadata.year,
+            "Year"
+          );
+
+        const references =
+          await validateOrganizationReferences(
+            departmentId,
+            documentTypeId
+          );
+
+        if (!references.valid) {
+          await client.query(
+            "ROLLBACK"
+          );
+
+          return res.status(400).json({
+            success: false,
+            error:
+              references.error,
+          });
+        }
+
+        const additionalMetadata =
+          JSON.stringify(
+            sanitizeAdditionalMetadata(
+              submittedMetadata.additionalMetadata
+            )
+          );
+
+        const createdMetadataResult =
+          await client.query(
+            `
+              INSERT INTO metadata_records (
+                reference_code,
+                title,
+                person_name,
+                department_id,
+                document_type_id,
+                section,
+                year,
+                document_date,
+                description,
+                additional_metadata,
+                status,
+                organization_id
+              )
+              VALUES (
+                $1,
+                $2,
+                $3,
+                $4,
+                $5,
+                $6,
+                $7,
+                $8,
+                $9,
+                $10::jsonb,
+                'AWAITING_DOCUMENT',
+                $11
+              )
+              RETURNING *
+            `,
+            [
+              referenceCode,
+              normalizeOptionalString(
+                submittedMetadata.title
+              ),
+              normalizeOptionalString(
+                submittedMetadata.personName
+              ),
+              departmentId,
+              documentTypeId,
+              normalizeOptionalString(
+                submittedMetadata.section
+              ),
+              year,
+              normalizeOptionalString(
+                submittedMetadata.documentDate
+              ),
+              normalizeOptionalString(
+                submittedMetadata.description
+              ),
+              additionalMetadata,
+              organizationId,
+            ]
+          );
+
+        let metadata =
+          createdMetadataResult.rows[0];
+
+        /*
+         * The new metadata is immediately linked to the
+         * uploaded document, so its final status is the
+         * established DOCUMENT_LINKED status.
+         */
+        const linkedMetadataResult =
+          await client.query(
+            `
+              UPDATE metadata_records
+              SET
+                status = 'DOCUMENT_LINKED',
+                updated_at = NOW()
+              WHERE id = $1
+                AND organization_id = $2
+              RETURNING *
+            `,
+            [
+              metadata.id,
+              organizationId,
+            ]
+          );
+
+        metadata =
+          linkedMetadataResult.rows[0];
+
+        const linkedDocumentResult =
+          await client.query(
+            `
+              UPDATE documents
+              SET
+                metadata_record_id = $1,
+                department_id = $2,
+                document_type_id = $3,
+                status = 'LINKED',
+                updated_at = NOW()
+              WHERE id = $4
+                AND organization_id = $5
+              RETURNING *
+            `,
+            [
+              metadata.id,
+              metadata.department_id,
+              metadata.document_type_id,
+              documentId,
+              organizationId,
+            ]
+          );
+
+        /*
+         * The AI recommendation was not approved.
+         * The human created a different metadata record.
+         */
+        await client.query(
+          `
+            UPDATE document_matches
+            SET
+              decision = 'REJECTED'
+            WHERE document_id = $1
+              AND metadata_record_id IS NOT NULL
+              AND metadata_record_id <> $2
+          `,
+          [
+            documentId,
+            metadata.id,
+          ]
+        );
+
+        await createAuditLog(
+          client,
+          organizationId,
+          getActorUserId(req),
+          documentId,
+          metadata.id,
+          "DOCUMENT_LINKED",
+          "Human reviewer created new metadata from the appraisal review and linked the uploaded document to the new metadata record."
+        );
+
+        await client.query(
+          "COMMIT"
+        );
+
+        return res.json({
+          success: true,
+          message:
+            "New metadata record created and document successfully linked.",
+          document:
+            linkedDocumentResult.rows[0],
+          metadata,
+          decision:
+            "NEW_METADATA_CREATED",
         });
       }
 
@@ -698,51 +1217,8 @@ router.post(
        * REJECT MATCH
        * --------------------------------------------------
        *
-       * Rejecting the AI recommendation
-       * creates a NEW metadata record.
-       *
-       * The reviewer may optionally submit:
-       *
-       * {
-       *   metadata: {
-       *     referenceCode,
-       *     title,
-       *     personName,
-       *     departmentId,
-       *     documentTypeId,
-       *     section,
-       *     year,
-       *     documentDate,
-       *     description
-       *   }
-       * }
-       *
-       * If the metadata object is supplied,
-       * its values are respected exactly,
-       * including null/blank values.
-       *
-       * This means the reviewer is NOT forced
-       * to accept every extracted field.
-       */
-      /*
-       * --------------------------------------------------
-       * REJECT MATCH
-       * --------------------------------------------------
-       *
-       * Rejecting the AI recommendation does NOT create
-       * a metadata record.
-       *
-       * The reviewer will subsequently review/edit the
-       * proposed new metadata in the frontend and use
-       * CREATE_METADATA when they explicitly approve
-       * creation.
-       *
-       * Therefore REJECT only:
-       *
-       * 1. Marks the AI recommendation as REJECTED.
-       * 2. Leaves the existing metadata unchanged.
-       * 3. Leaves the document unlinked.
-       * 4. Records the appraisal rejection in the audit log.
+       * REJECT only rejects the AI recommendation.
+       * It does not create or modify metadata.
        */
       if (
         normalizedDecision ===
@@ -764,12 +1240,6 @@ router.post(
           latestMatchResult.rows[0] ||
           null;
 
-        /*
-         * Mark the AI recommendation as rejected.
-         *
-         * No metadata_records row is inserted or
-         * modified here.
-         */
         if (latestMatch) {
           await client.query(
             `
@@ -782,11 +1252,6 @@ router.post(
           );
         }
 
-        /*
-         * Explicitly keep the uploaded document
-         * unlinked after the AI recommendation
-         * has been rejected.
-         */
         const unlinkedDocumentResult =
           await client.query(
             `
@@ -796,19 +1261,19 @@ router.post(
                 status = 'UNLINKED',
                 updated_at = NOW()
               WHERE id = $1
+                AND organization_id = $2
               RETURNING *
             `,
-            [documentId]
+            [
+              documentId,
+              organizationId,
+            ]
           );
 
-        /*
-         * Record the human rejection.
-         *
-         * The rejected metadata record is referenced
-         * for audit history only; it is not modified.
-         */
         await createAuditLog(
           client,
+          organizationId,
+          getActorUserId(req),
           documentId,
           latestMatch?.metadata_record_id ??
             null,
@@ -831,7 +1296,8 @@ router.post(
             latestMatch
               ? {
                   ...latestMatch,
-                  decision: "REJECTED",
+                  decision:
+                    "REJECTED",
                 }
               : null,
           rejectedMetadataRecordId:
@@ -871,10 +1337,16 @@ router.post(
   router.get(
     "/:documentId/appraisal",
     requireAuthentication(pool),
+    requireOrganizationContext(pool),
     async (
       req: Request,
       res: Response
     ) => {
+      const organizationId = getOrganizationId(req, res);
+      if (organizationId === null) {
+        return;
+      }
+
       const documentId =
         Number(
           req.params.documentId
@@ -926,6 +1398,7 @@ router.post(
               LEFT JOIN metadata_records mr
                 ON mr.id =
                    doc.metadata_record_id
+                AND mr.organization_id = doc.organization_id
 
               LEFT JOIN departments d
                 ON d.id =
@@ -936,8 +1409,9 @@ router.post(
                    doc.document_type_id
 
               WHERE doc.id = $1
+                AND doc.organization_id = $2
             `,
-            [documentId]
+            [documentId, organizationId]
           );
 
         if (
@@ -1004,11 +1478,17 @@ router.post(
                    mr.document_type_id
 
               WHERE dm.document_id = $1
+                AND EXISTS (
+                  SELECT 1
+                  FROM documents doc
+                  WHERE doc.id = dm.document_id
+                    AND doc.organization_id = $2
+                )
 
               ORDER BY
                 dm.created_at DESC
             `,
-            [documentId]
+            [documentId, organizationId]
           );
 
         res.json({
@@ -1039,10 +1519,16 @@ router.post(
 router.get(
   "/:documentId/file",
   requireAuthentication(pool),
+  requireOrganizationContext(pool),
   async (
     req: Request,
     res: Response
   ) => {
+    const organizationId = getOrganizationId(req, res);
+    if (organizationId === null) {
+      return;
+    }
+
     const documentId =
       Number(
         req.params.documentId
@@ -1076,10 +1562,11 @@ router.get(
             INNER JOIN documents d
               ON d.id = df.document_id
             WHERE df.document_id = $1
+              AND d.organization_id = $2
             ORDER BY df.uploaded_at DESC
             LIMIT 1
           `,
-          [documentId]
+          [documentId, organizationId]
         );
 
       if (
@@ -1113,9 +1600,13 @@ router.get(
         Number(file.owner_user_id) ===
         authUser.id;
 
+      const membershipRole =
+        authenticatedRequest.authOrganization?.role;
+
       const isPrivileged =
-        authUser.role === "ADMIN" ||
-        authUser.role === "APPRAISER";
+        membershipRole === "OWNER" ||
+        membershipRole === "ADMIN" ||
+        membershipRole === "APPRAISER";
 
       if (
         !isOwner &&

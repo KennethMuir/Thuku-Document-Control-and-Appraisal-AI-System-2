@@ -473,7 +473,8 @@ export function calculateFieldMatch(
 
 export async function findBestMetadataMatch(
   client: PoolClient,
-  extracted: ExtractedDocument
+  extracted: ExtractedDocument,
+  organizationId: number
 ): Promise<MatchResult> {
   const result =
     await client.query<MetadataCandidate>(
@@ -502,8 +503,15 @@ export async function findBestMetadataMatch(
         LEFT JOIN document_types dt
           ON dt.id = mr.document_type_id
 
+        WHERE mr.organization_id = $1
+          AND mr.status IN (
+            'AWAITING_DOCUMENT',
+            'DOCUMENT_LINKED'
+          )
+
         ORDER BY mr.created_at DESC
-      `
+      `,
+      [organizationId]
     );
 
   let bestMatch: MatchResult = {
@@ -542,3 +550,4 @@ export async function findBestMetadataMatch(
 
   return bestMatch;
 }
+

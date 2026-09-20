@@ -1,6 +1,6 @@
 import "dotenv/config";
 
-import app from "./app.js";
+const { default: app } = await import("./app.js");
 
 const PORT =
   Number(

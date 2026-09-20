@@ -13,6 +13,9 @@ import { createMetadataRouter } from "./metadata.js";
 import { createDocumentsRouter } from "./documents.js";
 import { createDocumentsUploadRouter } from "./documentsUpload.js";
 import { createMetadataBulkRouter } from "./metadataBulk.js";
+import { createFieldRegistryRouter } from "./fieldRegistry.js";
+import { createDomainRegistryRouter } from "./domainRegistry.js";
+import { createDomainRelationshipsRouter } from "./domainRelationships.js";
 
 import type { Pool } from "pg";
 import type multer from "multer";
@@ -81,6 +84,21 @@ export function registerRoutes(
   );
 
   app.use(
+    "/api/field-registry",
+    createFieldRegistryRouter(pool)
+  );
+
+  app.use(
+    "/api/domain-registry",
+    createDomainRegistryRouter(pool)
+  );
+
+  app.use(
+    "/api/domain-relationships",
+    createDomainRelationshipsRouter(pool)
+  );
+
+  app.use(
     "/api/documents/upload",
     createDocumentsUploadRouter(
       pool,
@@ -90,3 +108,6 @@ export function registerRoutes(
     )
   );
 }
+
+
+

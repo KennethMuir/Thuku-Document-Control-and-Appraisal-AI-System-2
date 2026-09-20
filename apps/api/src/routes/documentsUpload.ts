@@ -4,13 +4,14 @@ import {
   type Response,
 } from "express";
 
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
 
 import {
   requireAuthentication,
+  requireOrganizationContext,
   requireRole,
   type AuthenticatedRequest,
 } from "../middleware/auth.js";
@@ -27,6 +28,30 @@ import {
   LocalFileStorage,
 } from "../services/storage.js";
 
+async function generateMetadataReferenceCode(
+  client: PoolClient
+): Promise<string> {
+  const result = await client.query(`
+    SELECT nextval(
+      'metadata_reference_number_seq'
+    ) AS reference_number
+  `);
+
+  const referenceNumber = Number(
+    result.rows[0]?.reference_number
+  );
+
+  if (
+    !Number.isInteger(referenceNumber) ||
+    referenceNumber <= 0
+  ) {
+    throw new Error(
+      "The metadata reference number sequence returned an invalid value."
+    );
+  }
+
+  return `MET-${referenceNumber}`;
+}
 export function createDocumentsUploadRouter(
   pool: Pool,
   upload: multer.Multer,
@@ -37,6 +62,7 @@ export function createDocumentsUploadRouter(
 router.post(
   "/",
   requireAuthentication(pool),
+  requireOrganizationContext(pool),
   requireRole("ADMIN", "APPRAISER"),
   upload.single("file"),
   async (
@@ -64,6 +90,10 @@ router.post(
     const ownerUser =
       authenticatedRequest.authUser;
 
+    const organizationId =
+      authenticatedRequest.authOrganization
+        ?.organizationId;
+
     if (!ownerUser) {
       await fs.promises.unlink(
         temporaryPath
@@ -73,6 +103,15 @@ router.post(
         success: false,
         error:
           "Authentication required",
+      });
+    }
+
+    if (typeof organizationId !== "number" || !Number.isInteger(organizationId) || organizationId <= 0) {
+      await fs.promises.unlink(temporaryPath).catch(() => undefined);
+
+      return res.status(403).json({
+        success: false,
+        error: "Organization context is required",
       });
     }
 
@@ -183,7 +222,8 @@ router.post(
                 file_type,
                 file_size,
                 status,
-                owner_user_id
+                owner_user_id,
+                organization_id
               )
               VALUES (
                 $1,
@@ -196,7 +236,8 @@ router.post(
                 $8,
                 $9,
                 $10,
-                $11
+                $11,
+                $12
               )
               RETURNING *
             `,
@@ -214,6 +255,7 @@ router.post(
               req.file.size,
               "UNLINKED",
               ownerUser.id,
+              organizationId,
             ]
           );
 
@@ -267,6 +309,7 @@ router.post(
                 extracted_text,
                 extracted_title,
                 extracted_date,
+                extracted_date_text,
                 extracted_year,
                 extracted_person_name,
                 extraction_status
@@ -278,7 +321,8 @@ router.post(
                 $4,
                 $5,
                 $6,
-                $7
+                $7,
+                $8
               )
               RETURNING *
             `,
@@ -287,6 +331,7 @@ router.post(
               extracted.text,
               extracted.title,
               extracted.date,
+              extracted.extractedDateText,
               extracted.year,
               extracted.personName,
               "COMPLETED",
@@ -299,7 +344,8 @@ router.post(
         const bestMatch =
           await findBestMetadataMatch(
             client,
-            extracted
+            extracted,
+            organizationId
           );
 
         let documentStatus =
@@ -460,6 +506,8 @@ router.post(
 
         await createAuditLog(
           client,
+          organizationId,
+          ownerUser.id,
           documentId,
           bestMatch.metadataRecordId,
           "DOCUMENT_APPRAISED",
@@ -490,7 +538,7 @@ router.post(
                     mr.id,
                     mr.reference_code,
                     mr.title,
-                    mr.document_date,
+                    mr.document_date::text AS document_date,
                     mr.year,
                     mr.person_name,
                     mr.description,
@@ -524,10 +572,12 @@ router.post(
                     ON dt.id = latest.document_type_id
 
                   WHERE mr.id = $1
+                    AND mr.organization_id = $2
                   LIMIT 1
                 `,
                 [
                   bestMatch.metadataRecordId,
+                  organizationId,
                 ]
               )
             : { rows: [] };
@@ -620,12 +670,21 @@ router.post(
             return "";
           }
 
+          if (value instanceof Date) {
+            if (Number.isNaN(value.getTime())) {
+              return "";
+            }
+
+            return value
+              .toISOString()
+              .slice(0, 10);
+          }
+
           return String(value)
             .trim()
             .slice(0, 10)
             .toLowerCase();
         };
-
         const appraisalConflicts: Array<{
           field: string;
           existingValue: string | null;
@@ -713,21 +772,25 @@ router.post(
                 FROM departments
                 WHERE
                   (
-                    $1 IS NOT NULL
-                    AND LOWER(code) =
-                        LOWER($1)
+                    (
+                      $1::text IS NOT NULL
+                      AND LOWER(code) =
+                          LOWER($1::text)
+                    )
+                    OR
+                    (
+                      $2::text IS NOT NULL
+                      AND LOWER(name) =
+                          LOWER($2::text)
+                    )
                   )
-                  OR
-                  (
-                    $2 IS NOT NULL
-                    AND LOWER(name) =
-                        LOWER($2)
-                  )
+                  AND organization_id = $3::bigint
                 LIMIT 1
               `,
               [
                 extractedDepartmentCode,
                 extractedDepartment,
+                organizationId,
               ]
             );
 
@@ -763,10 +826,12 @@ router.post(
                 FROM document_types
                 WHERE LOWER(name) =
                       LOWER($1)
+                  AND organization_id = $2
                 LIMIT 1
               `,
               [
                 extractedDocumentType,
+                organizationId,
               ]
             );
 
@@ -870,11 +935,18 @@ router.post(
             null,
 
           reference_code:
-            mergeAppraisalField(
-              "Reference Code",
-              existingAppraisalMetadata
-                ?.reference_code,
-              extracted.referenceCode
+            existingAppraisalMetadata?.reference_code ??
+            (
+              bestMatch.metadataRecordId === null
+                ? await generateMetadataReferenceCode(
+                    client
+                  )
+                : mergeAppraisalField(
+                    "Reference Code",
+                    existingAppraisalMetadata
+                      ?.reference_code,
+                    extracted.referenceCode
+                  )
             ),
 
           title:
@@ -981,6 +1053,9 @@ router.post(
               bestMatch.matchingFields,
             conflictingFields:
               bestMatch.conflictingFields,
+
+            extractedDateText:
+              extracted.extractedDateText,
             decision,
 
             metadata:
@@ -1051,3 +1126,6 @@ router.post(
 
   return router;
 }
+
+
+

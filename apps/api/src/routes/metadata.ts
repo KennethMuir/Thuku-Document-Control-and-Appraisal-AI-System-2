@@ -3,7 +3,9 @@ import type { Pool } from "pg";
 
 import {
   requireAuthentication,
+  requireOrganizationContext,
   requireRole,
+  type AuthenticatedRequest,
 } from "../middleware/auth.js";
 import {
   nullableString,
@@ -16,16 +18,41 @@ import {
 
 export function createMetadataRouter(pool: Pool) {
   const router = Router();
+
+  const getOrganizationId = (
+    req: Request,
+    res: Response
+  ): number | null => {
+    const organizationId =
+      (req as AuthenticatedRequest)
+        .authOrganization?.organizationId;
+
+    if (typeof organizationId !== "number" || !Number.isInteger(organizationId) || organizationId <= 0) {
+      res.status(403).json({
+        success: false,
+        error: "Organization context is required.",
+      });
+      return null;
+    }
+
+    return organizationId;
+  };
+
   router.get(
   "/",
   requireAuthentication(pool),
+  requireOrganizationContext(pool),
   async (
-    _req: Request,
+    req: Request,
     res: Response
-  ) => {
+    ) => {
+    const organizationId = getOrganizationId(req, res);
+    if (organizationId === null) {
+      return;
+    }
+
     try {
-      const result =
-        await pool.query(`
+      const result = await pool.query(`
           SELECT
             mr.id,
             mr.reference_code,
@@ -94,6 +121,9 @@ export function createMetadataRouter(pool: Pool) {
           LEFT JOIN documents doc
             ON doc.metadata_record_id =
                mr.id
+            AND doc.organization_id = mr.organization_id
+
+          WHERE mr.organization_id = $1
 
           GROUP BY
             mr.id,
@@ -117,7 +147,7 @@ export function createMetadataRouter(pool: Pool) {
 
           ORDER BY
             mr.created_at DESC
-        `);
+        `, [organizationId]);
 
       res.json({
         success: true,
@@ -141,11 +171,17 @@ export function createMetadataRouter(pool: Pool) {
 router.post(
   "/",
   requireAuthentication(pool),
+  requireOrganizationContext(pool),
   requireRole("ADMIN", "APPRAISER"),
   async (
     req: Request,
     res: Response
   ) => {
+    const organizationId = getOrganizationId(req, res);
+    if (organizationId === null) {
+      return;
+    }
+
     const {
       referenceCode,
       title,
@@ -180,12 +216,14 @@ router.post(
             FROM metadata_records
             WHERE LOWER(reference_code) =
                   LOWER($1)
+              AND organization_id = $2
             LIMIT 1
           `,
           [
             String(
               referenceCode
             ).trim(),
+            organizationId,
           ]
         );
 
@@ -198,6 +236,39 @@ router.post(
           error:
             "A metadata record with this reference code already exists",
         });
+      }
+
+      const parsedDepartmentId =
+        nullablePositiveInteger(departmentId);
+      const parsedDocumentTypeId =
+        nullablePositiveInteger(documentTypeId);
+
+      if (parsedDepartmentId !== null) {
+        const department = await pool.query(
+          `SELECT id FROM departments WHERE id = $1 AND organization_id = $2`,
+          [parsedDepartmentId, organizationId]
+        );
+
+        if (department.rowCount === 0) {
+          return res.status(400).json({
+            success: false,
+            error: "Department does not belong to your organization.",
+          });
+        }
+      }
+
+      if (parsedDocumentTypeId !== null) {
+        const documentType = await pool.query(
+          `SELECT id FROM document_types WHERE id = $1 AND organization_id = $2`,
+          [parsedDocumentTypeId, organizationId]
+        );
+
+        if (documentType.rowCount === 0) {
+          return res.status(400).json({
+            success: false,
+            error: "Document type does not belong to your organization.",
+          });
+        }
       }
 
       const result =
@@ -214,7 +285,8 @@ router.post(
               document_date,
               description,
               additional_metadata,
-              status
+              status,
+              organization_id
             )
             VALUES (
               $1,
@@ -227,7 +299,8 @@ router.post(
               $8,
               $9,
               $10,
-              'AWAITING_DOCUMENT'
+              'AWAITING_DOCUMENT',
+              $11
             )
             RETURNING
               id,
@@ -256,13 +329,9 @@ router.post(
               personName
             ),
 
-            nullablePositiveInteger(
-              departmentId
-            ),
+            parsedDepartmentId,
 
-            nullablePositiveInteger(
-              documentTypeId
-            ),
+            parsedDocumentTypeId,
 
             nullableString(
               section
@@ -283,6 +352,7 @@ router.post(
                 additionalMetadata
               )
             ),
+            organizationId,
           ]
         );
 

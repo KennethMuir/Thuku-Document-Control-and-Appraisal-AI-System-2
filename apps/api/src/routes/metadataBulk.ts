@@ -7,7 +7,9 @@ import multer from "multer";
 
 import {
   requireAuthentication,
+  requireOrganizationContext,
   requireRole,
+  type AuthenticatedRequest,
 } from "../middleware/auth.js";
 
 import {
@@ -22,12 +24,24 @@ export function createMetadataBulkRouter(
 router.post(
   "/",
   requireAuthentication(pool),
+  requireOrganizationContext(pool),
   requireRole("ADMIN", "APPRAISER"),
   upload.single("file"),
   async (
     req: Request,
     res: Response
   ) => {
+    const organizationId =
+      (req as AuthenticatedRequest)
+        .authOrganization?.organizationId;
+
+    if (typeof organizationId !== "number" || !Number.isInteger(organizationId) || organizationId <= 0) {
+      return res.status(403).json({
+        success: false,
+        error: "Organization context is required.",
+      });
+    }
+
     const uploadedFile = req.file;
 
     if (!uploadedFile) {
@@ -304,7 +318,10 @@ router.post(
             name,
             code
           FROM departments
-        `);
+          WHERE organization_id = $1
+        `,
+        [organizationId]
+      );
 
       const documentTypeResult =
         await pool.query(`
@@ -312,7 +329,10 @@ router.post(
             id,
             name
           FROM document_types
-        `);
+          WHERE organization_id = $1
+        `,
+        [organizationId]
+      );
 
       const departmentByName =
         new Map<string, number>();
@@ -746,8 +766,9 @@ router.post(
           SELECT reference_code
           FROM metadata_records
           WHERE LOWER(reference_code) = ANY($1::text[])
+            AND organization_id = $2
         `,
-        [Array.from(uploadedReferences)]
+        [Array.from(uploadedReferences), organizationId]
       );
 
       const existingReferenceCodes =
@@ -798,11 +819,13 @@ router.post(
               SELECT reference_code
               FROM metadata_records
               WHERE LOWER(reference_code) = ANY($1::text[])
+                AND organization_id = $2
             `,
             [
               Array.from(
                 uploadedReferences
               ),
+              organizationId,
             ]
           );
 
@@ -848,7 +871,8 @@ router.post(
                 document_date,
                 description,
                 additional_metadata,
-                status
+                status,
+                organization_id
               )
               VALUES (
                 $1,
@@ -861,7 +885,8 @@ router.post(
                 $8,
                 $9,
                 $10::jsonb,
-                'AWAITING_DOCUMENT'
+                'AWAITING_DOCUMENT',
+                $11
               )
             `,
             [
@@ -877,6 +902,7 @@ router.post(
               JSON.stringify(
                 row.additionalMetadata
               ),
+              organizationId,
             ]
           );
         }

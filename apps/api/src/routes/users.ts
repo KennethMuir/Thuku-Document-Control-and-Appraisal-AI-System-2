@@ -3,292 +3,94 @@ import type { Pool } from "pg";
 
 import {
   requireAuthentication,
+  requireOrganizationContext,
   requireRole,
   type AuthenticatedRequest,
 } from "../middleware/auth.js";
 
+function organizationIdFor(req: Request, res: Response): number | null {
+  const organizationId = (req as AuthenticatedRequest).authOrganization?.organizationId;
+  if (typeof organizationId !== "number" || !Number.isInteger(organizationId) || organizationId <= 0) {
+    res.status(403).json({ success: false, error: "Organization context is required." });
+    return null;
+  }
+  return organizationId;
+}
+
 export function createUsersRouter(pool: Pool) {
   const router = Router();
 
-router.get(
-  "/",
-  requireAuthentication(pool),
-  requireRole("ADMIN"),
-  async (
-    _req: Request,
-    res: Response
-  ) => {
+  router.get("/", requireAuthentication(pool), requireOrganizationContext(pool), requireRole("ADMIN"), async (req, res) => {
+    const organizationId = organizationIdFor(req, res);
+    if (organizationId === null) return;
     try {
-      const result = await pool.query(
-        `
-          SELECT
-            id,
-            email,
-            full_name AS "fullName",
-            role,
-            is_active AS "isActive",
-            created_at AS "createdAt"
-          FROM users
-          ORDER BY
-            CASE role
-              WHEN 'ADMIN' THEN 1
-              WHEN 'APPRAISER' THEN 2
-              WHEN 'VIEWER' THEN 3
-              ELSE 4
-            END,
-            LOWER(email)
-        `
-      );
-
-      return res.json({
-        success: true,
-        users: result.rows,
-      });
+      const result = await pool.query(`
+        SELECT u.id, u.email, u.full_name AS "fullName",
+          CASE WHEN om.role = 'OWNER' THEN 'ADMIN' ELSE om.role END AS role,
+          om.is_active AS "isActive", u.created_at AS "createdAt"
+        FROM users u
+        INNER JOIN organization_memberships om ON om.user_id = u.id
+        WHERE om.organization_id = $1
+        ORDER BY CASE om.role WHEN 'OWNER' THEN 1 WHEN 'ADMIN' THEN 2 WHEN 'APPRAISER' THEN 3 WHEN 'VIEWER' THEN 4 ELSE 5 END, LOWER(u.email)
+      `, [organizationId]);
+      return res.json({ success: true, users: result.rows });
     } catch (error) {
-      console.error(
-        "User list retrieval failed:",
-        error
-      );
-
-      return res.status(500).json({
-        success: false,
-        error:
-          "Unable to retrieve users.",
-      });
+      console.error("User list retrieval failed:", error);
+      return res.status(500).json({ success: false, error: "Unable to retrieve users." });
     }
-  }
-);
+  });
 
-router.patch(
-  "/:userId",
-  requireAuthentication(pool),
-  requireRole("ADMIN"),
-  async (
-    req: Request,
-    res: Response
-  ) => {
-    const userId = Number(
-      req.params.userId
-    );
+  router.patch("/:userId", requireAuthentication(pool), requireOrganizationContext(pool), requireRole("ADMIN"), async (req, res) => {
+    const organizationId = organizationIdFor(req, res);
+    if (organizationId === null) return;
+    const userId = Number(req.params.userId);
+    if (!Number.isInteger(userId) || userId <= 0) return res.status(400).json({ success: false, error: "Invalid user ID." });
 
-    if (
-      !Number.isInteger(userId) ||
-      userId <= 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        error:
-          "Invalid user ID.",
-      });
-    }
+    const requestedRole = typeof req.body?.role === "string" ? req.body.role.trim().toUpperCase() : undefined;
+    const requestedIsActive = typeof req.body?.isActive === "boolean" ? req.body.isActive : undefined;
+    const validRoles = ["ADMIN", "APPRAISER", "VIEWER"] as const;
+    if (requestedRole !== undefined && !validRoles.includes(requestedRole as typeof validRoles[number])) return res.status(400).json({ success: false, error: "Invalid user role." });
+    if (requestedRole === undefined && requestedIsActive === undefined) return res.status(400).json({ success: false, error: "No user changes were provided." });
 
-    const requestedRole =
-      typeof req.body?.role === "string"
-        ? req.body.role.trim().toUpperCase()
-        : undefined;
-
-    const requestedIsActive =
-      typeof req.body?.isActive === "boolean"
-        ? req.body.isActive
-        : undefined;
-
-    const validRoles = [
-      "ADMIN",
-      "APPRAISER",
-      "VIEWER",
-    ] as const;
-
-    if (
-      requestedRole !== undefined &&
-      !validRoles.includes(
-        requestedRole as
-          | "ADMIN"
-          | "APPRAISER"
-          | "VIEWER"
-      )
-    ) {
-      return res.status(400).json({
-        success: false,
-        error:
-          "Invalid user role.",
-      });
-    }
-
-    if (
-      requestedRole === undefined &&
-      requestedIsActive === undefined
-    ) {
-      return res.status(400).json({
-        success: false,
-        error:
-          "No user changes were provided.",
-      });
+    const authUser = (req as AuthenticatedRequest).authUser;
+    if (!authUser) return res.status(401).json({ success: false, error: "Authentication required" });
+    if (authUser.id === userId && (requestedIsActive === false || (requestedRole !== undefined && requestedRole !== "ADMIN"))) {
+      return res.status(400).json({ success: false, error: requestedIsActive === false ? "You cannot deactivate your own account." : "You cannot remove your own ADMIN role." });
     }
 
     try {
-      const authenticatedRequest =
-        req as AuthenticatedRequest;
+      const existingResult = await pool.query(`
+        SELECT CASE WHEN om.role = 'OWNER' THEN 'ADMIN' ELSE om.role END AS role,
+          om.role AS membership_role, om.is_active AS "isActive"
+        FROM organization_memberships om
+        WHERE om.user_id = $1 AND om.organization_id = $2
+        LIMIT 1
+      `, [userId, organizationId]);
+      if (existingResult.rowCount === 0) return res.status(404).json({ success: false, error: "User not found." });
 
-      const authUser =
-        authenticatedRequest.authUser;
-
-      if (!authUser) {
-        return res.status(401).json({
-          success: false,
-          error:
-            "Authentication required",
-        });
-      }
-
-      if (authUser.id === userId) {
-        if (
-          requestedIsActive === false
-        ) {
-          return res.status(400).json({
-            success: false,
-            error:
-              "You cannot deactivate your own account.",
-          });
-        }
-
-        if (
-          requestedRole !== undefined &&
-          requestedRole !== "ADMIN"
-        ) {
-          return res.status(400).json({
-            success: false,
-            error:
-              "You cannot remove your own ADMIN role.",
-          });
-        }
-      }
-
-      const existingResult =
-        await pool.query(
-          `
-            SELECT
-              id,
-              email,
-              full_name AS "fullName",
-              role,
-              is_active AS "isActive",
-              created_at AS "createdAt"
-            FROM users
-            WHERE id = $1
-            LIMIT 1
-          `,
-          [userId]
-        );
-
-      if (
-        existingResult.rowCount === 0
-      ) {
-        return res.status(404).json({
-          success: false,
-          error:
-            "User not found.",
-        });
-      }
-
-      const existingUser =
-        existingResult.rows[0];
-
-      const finalRole =
-        requestedRole ??
-        existingUser.role;
-
-      const finalIsActive =
-        requestedIsActive ??
-        existingUser.isActive;
-
-      const existingIsActive =
-        Boolean(
-          existingUser.isActive
-        );
-
-      const existingRole =
-        String(
-          existingUser.role
-        ).toUpperCase();
-
-      const removesActiveAdmin =
-        existingRole === "ADMIN" &&
-        existingIsActive &&
-        (
-          finalRole !== "ADMIN" ||
-          finalIsActive !== true
-        );
-
+      const existing = existingResult.rows[0];
+      const finalRole = requestedRole ?? existing.role;
+      const finalIsActive = requestedIsActive ?? existing.isActive;
+      const removesActiveAdmin = (existing.membership_role === "OWNER" || existing.membership_role === "ADMIN") && Boolean(existing.isActive) && (finalRole !== "ADMIN" || finalIsActive !== true);
       if (removesActiveAdmin) {
-        const adminCountResult =
-          await pool.query(
-            `
-              SELECT COUNT(*)::int AS count
-              FROM users
-              WHERE role = 'ADMIN'
-                AND is_active = TRUE
-            `
-          );
-
-        const activeAdminCount =
-          Number(
-            adminCountResult.rows[0]?.count ||
-              0
-          );
-
-        if (
-          activeAdminCount <= 1
-        ) {
-          return res.status(400).json({
-            success: false,
-            error:
-              "The system must always have at least one active ADMIN.",
-          });
-        }
+        const count = await pool.query(`SELECT COUNT(*)::int AS count FROM organization_memberships WHERE organization_id = $1 AND role IN ('OWNER', 'ADMIN') AND is_active = TRUE`, [organizationId]);
+        if (Number(count.rows[0]?.count || 0) <= 1) return res.status(400).json({ success: false, error: "The organization must always have at least one active ADMIN." });
       }
 
-      const updatedResult =
-        await pool.query(
-          `
-            UPDATE users
-            SET
-              role = $1,
-              is_active = $2
-            WHERE id = $3
-            RETURNING
-              id,
-              email,
-              full_name AS "fullName",
-              role,
-              is_active AS "isActive",
-              created_at AS "createdAt"
-          `,
-          [
-            finalRole,
-            finalIsActive,
-            userId,
-          ]
-        );
-
-      return res.json({
-        success: true,
-        user:
-          updatedResult.rows[0],
-      });
+      await pool.query(`UPDATE organization_memberships SET role = $1, is_active = $2, updated_at = NOW() WHERE user_id = $3 AND organization_id = $4`, [finalRole, finalIsActive, userId, organizationId]);
+      const updated = await pool.query(`
+        SELECT u.id, u.email, u.full_name AS "fullName",
+          CASE WHEN om.role = 'OWNER' THEN 'ADMIN' ELSE om.role END AS role,
+          om.is_active AS "isActive", u.created_at AS "createdAt"
+        FROM users u INNER JOIN organization_memberships om ON om.user_id = u.id
+        WHERE u.id = $1 AND om.organization_id = $2 LIMIT 1
+      `, [userId, organizationId]);
+      return res.json({ success: true, user: updated.rows[0] });
     } catch (error) {
-      console.error(
-        "User update failed:",
-        error
-      );
-
-      return res.status(500).json({
-        success: false,
-        error:
-          "Unable to update user.",
-      });
+      console.error("User update failed:", error);
+      return res.status(500).json({ success: false, error: "Unable to update user." });
     }
-  }
-);
+  });
 
   return router;
 }

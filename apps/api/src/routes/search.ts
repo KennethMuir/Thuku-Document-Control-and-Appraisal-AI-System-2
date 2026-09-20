@@ -1,7 +1,11 @@
 import { Router, type Request, type Response } from "express";
 import type { Pool } from "pg";
 
-import { requireAuthentication } from "../middleware/auth.js";
+import {
+  requireAuthentication,
+  requireOrganizationContext,
+  type AuthenticatedRequest,
+} from "../middleware/auth.js";
 
 export function createSearchRouter(pool: Pool) {
   const router = Router();
@@ -9,10 +13,22 @@ export function createSearchRouter(pool: Pool) {
   router.get(
   "/",
   requireAuthentication(pool),
+  requireOrganizationContext(pool),
   async (
     req: Request,
     res: Response
   ) => {
+    const organizationId =
+      (req as AuthenticatedRequest)
+        .authOrganization?.organizationId;
+
+    if (typeof organizationId !== "number" || !Number.isInteger(organizationId) || organizationId <= 0) {
+      return res.status(403).json({
+        success: false,
+        error: "Organization context is required.",
+      });
+    }
+
     try {
       const query =
         typeof req.query.q === "string"
@@ -90,8 +106,11 @@ export function createSearchRouter(pool: Pool) {
 
           LEFT JOIN documents doc
             ON doc.metadata_record_id = mr.id
+            AND doc.organization_id = mr.organization_id
 
           WHERE
+            mr.organization_id = $2
+            AND (
             mr.reference_code ILIKE $1
             OR mr.title ILIKE $1
             OR mr.person_name ILIKE $1
@@ -111,6 +130,7 @@ export function createSearchRouter(pool: Pool) {
             OR doc.status ILIKE $1
             OR CAST(doc.year AS TEXT) ILIKE $1
             OR CAST(doc.document_date AS TEXT) ILIKE $1
+            )
 
           GROUP BY
             mr.id,
@@ -183,7 +203,8 @@ export function createSearchRouter(pool: Pool) {
             ON dt.id = doc.document_type_id
 
           WHERE
-            doc.metadata_record_id IS NULL
+            doc.organization_id = $2
+            AND doc.metadata_record_id IS NULL
             AND (
               doc.document_code ILIKE $1
               OR doc.filename ILIKE $1
@@ -199,7 +220,7 @@ export function createSearchRouter(pool: Pool) {
 
           ORDER BY sort_date DESC
         `,
-        [searchPattern]
+        [searchPattern, organizationId]
       );
 
       res.json({

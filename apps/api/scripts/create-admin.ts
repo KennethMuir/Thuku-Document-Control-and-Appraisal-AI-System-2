@@ -36,6 +36,128 @@ async function createPasswordHash(
   ].join("$");
 }
 
+async function provisionOrganizationMembership(
+  userId: number
+): Promise<void> {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const existingOrg = await client.query<{
+      id: number;
+    }>(
+      `
+        SELECT id
+        FROM organizations
+        WHERE status = 'ACTIVE'
+        ORDER BY
+          CASE
+            WHEN slug = 'thuku-document-control' THEN 0
+            ELSE 1
+          END,
+          id
+        LIMIT 1
+      `
+    );
+
+    let organizationId =
+      existingOrg.rows[0]?.id;
+
+    if (organizationId === undefined) {
+      const createdOrg = await client.query<{
+        id: number;
+      }>(
+        `
+          INSERT INTO organizations (
+            name,
+            slug,
+            status
+          )
+          VALUES (
+            'Thuku Document Control',
+            'thuku-document-control',
+            'ACTIVE'
+          )
+          ON CONFLICT (slug) DO NOTHING
+          RETURNING id
+        `
+      );
+
+      organizationId =
+        createdOrg.rows[0]?.id;
+
+      await client.query(
+        `
+          INSERT INTO workspaces (
+            organization_id,
+            name,
+            slug,
+            status
+          )
+          VALUES (
+            $1,
+            'Default Workspace',
+            'default',
+            'ACTIVE'
+          )
+          ON CONFLICT (
+            organization_id,
+            slug
+          ) DO NOTHING
+        `,
+        [organizationId]
+      );
+    }
+
+    if (organizationId === undefined) {
+      throw new Error(
+        "Unable to resolve or create an organization for the ADMIN account."
+      );
+    }
+
+    await client.query(
+      `
+        INSERT INTO organization_memberships (
+          organization_id,
+          user_id,
+          role,
+          is_active
+        )
+        VALUES (
+          $1,
+          $2,
+          'OWNER',
+          TRUE
+        )
+        ON CONFLICT (
+          organization_id,
+          user_id
+        ) DO UPDATE
+        SET
+          role = 'OWNER',
+          is_active = TRUE,
+          updated_at = NOW()
+      `,
+      [
+        organizationId,
+        userId,
+      ]
+    );
+
+    await client.query("COMMIT");
+
+    console.log(
+      `\nADMIN membership provisioned (organization=${organizationId}, role=OWNER).`
+    );
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 function askQuestion(question: string): Promise<string> {
   const readline = createInterface({
     input: process.stdin,
@@ -220,8 +342,12 @@ async function main() {
       );
       console.log(`User ID: ${userId}`);
       console.log(`Email: ${email}`);
-      console.log(
+console.log(
         "Existing sessions were revoked."
+      );
+
+      await provisionOrganizationMembership(
+        userId
       );
     } else {
       const result = await pool.query<{
@@ -257,7 +383,11 @@ async function main() {
       console.log(
         `User ID: ${result.rows[0]!.id}`
       );
-      console.log(`Email: ${email}`);
+console.log(`Email: ${email}`);
+
+      await provisionOrganizationMembership(
+        result.rows[0]!.id
+      );
     }
   } catch (error) {
     console.error(

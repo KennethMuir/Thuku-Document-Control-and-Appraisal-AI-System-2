@@ -97,77 +97,222 @@ router.post(
       const passwordHash =
         await createPasswordHash(password);
 
-      const result = await pool.query(
-        `
-          INSERT INTO users (
-            email,
-            password_hash,
-            full_name,
-            role,
-            is_active
-          )
-          VALUES ($1, $2, $3, 'VIEWER', TRUE)
-          RETURNING
-            id,
-            email,
-            full_name AS "fullName",
-            role,
-            is_active AS "isActive"
-        `,
-        [email, passwordHash, fullName]
-      );
+      const client =
+        await pool.connect();
 
-      const user = result.rows[0] as {
-        id: number;
-        email: string;
-        fullName: string | null;
-        role:
-          | "ADMIN"
-          | "APPRAISER"
-          | "VIEWER";
-        isActive: boolean;
-      };
+      try {
+        await client.query(
+          "BEGIN"
+        );
 
-      const sessionToken =
-        createSessionToken();
+        const result =
+          await client.query(
+            `
+              INSERT INTO users (
+                email,
+                password_hash,
+                full_name,
+                role,
+                is_active
+              )
+              VALUES (
+                $1,
+                $2,
+                $3,
+                'VIEWER',
+                TRUE
+              )
+              RETURNING
+                id,
+                email,
+                full_name AS "fullName",
+                role,
+                is_active AS "isActive"
+            `,
+            [
+              email,
+              passwordHash,
+              fullName,
+            ]
+          );
 
-      const tokenHash =
-        hashSessionToken(sessionToken);
+        const user = result.rows[0] as {
+          id: number;
+          email: string;
+          fullName: string | null;
+          role:
+            | "ADMIN"
+            | "APPRAISER"
+            | "VIEWER";
+          isActive: boolean;
+        };
 
-      const expiresAt = new Date(
-        Date.now() +
-          SESSION_DURATION_DAYS *
-          24 *
-          60 *
-          60 *
-          1000
-      );
+        /*
+         * A newly registered account has no organization membership.
+         *
+         * Users must never be allowed to select or join an existing
+         * organization by supplying an organization ID, so signup
+         * provisions a private personal organization owned by the
+         * new user. This gives every account a viable membership
+         * path without creating an authorization bypass.
+         */
 
-      await pool.query(
-        `
-          INSERT INTO sessions (
-            user_id,
-            token_hash,
-            expires_at
-          )
-          VALUES ($1, $2, $3)
-        `,
-        [
-          user.id,
-          tokenHash,
-          expiresAt,
-        ]
-      );
+        const personalOrganizationName =
+          fullName.trim()
+            ? `${fullName.trim()}'s Organization`
+            : "Personal Organization";
 
-      setSessionCookie(
-        res,
-        sessionToken
-      );
+        const organizationResult =
+          await client.query(
+            `
+              INSERT INTO organizations (
+                name,
+                slug,
+                status
+              )
+              VALUES (
+                $1,
+                $2,
+                'ACTIVE'
+              )
+              ON CONFLICT (slug) DO NOTHING
+              RETURNING id
+            `,
+            [
+              personalOrganizationName,
+              `personal-${user.id}`,
+            ]
+          );
 
-      return res.status(201).json({
-        success: true,
-        user,
-      });
+        const organizationRow =
+          organizationResult.rows[0] ||
+          (
+            await client.query(
+              `
+                SELECT id
+                FROM organizations
+                WHERE slug = $1
+                LIMIT 1
+              `,
+              [`personal-${user.id}`]
+            )
+          ).rows[0];
+
+        if (!organizationRow) {
+          throw new Error(
+            "Signup failed to provision a personal organization."
+          );
+        }
+
+        const organizationId =
+          Number(
+            organizationRow.id
+          );
+
+        await client.query(
+          `
+            INSERT INTO organization_memberships (
+              organization_id,
+              user_id,
+              role,
+              is_active
+            )
+            VALUES (
+              $1,
+              $2,
+              'OWNER',
+              TRUE
+            )
+            ON CONFLICT (
+              organization_id,
+              user_id
+            ) DO NOTHING
+          `,
+          [
+            organizationId,
+            user.id,
+          ]
+        );
+
+        /*
+         * Match the workspace pattern established by M17A so the
+         * newly provisioned organization is complete.
+         */
+        await client.query(
+          `
+            INSERT INTO workspaces (
+              organization_id,
+              name,
+              slug,
+              status
+            )
+            VALUES (
+              $1,
+              'Default Workspace',
+              'default',
+              'ACTIVE'
+            )
+            ON CONFLICT (
+              organization_id,
+              slug
+            ) DO NOTHING
+          `,
+          [organizationId]
+        );
+
+        const sessionToken =
+          createSessionToken();
+
+        const tokenHash =
+          hashSessionToken(sessionToken);
+
+        const expiresAt = new Date(
+          Date.now() +
+            SESSION_DURATION_DAYS *
+            24 *
+            60 *
+            60 *
+            1000
+        );
+
+        await client.query(
+          `
+            INSERT INTO sessions (
+              user_id,
+              token_hash,
+              expires_at
+            )
+            VALUES ($1, $2, $3)
+          `,
+          [
+            user.id,
+            tokenHash,
+            expiresAt,
+          ]
+        );
+
+        await client.query(
+          "COMMIT"
+        );
+
+        setSessionCookie(
+          res,
+          sessionToken
+        );
+
+        return res.status(201).json({
+          success: true,
+          user,
+        });
+      } catch (error) {
+        await client.query(
+          "ROLLBACK"
+        );
+
+        throw error;
+      } finally {
+        client.release();
+      }
     } catch (error) {
       console.error(
         "Signup failed:",

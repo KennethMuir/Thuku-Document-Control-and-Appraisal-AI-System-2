@@ -12,17 +12,64 @@ const scrypt = promisify(scryptCallback);
 
 export const SESSION_DURATION_DAYS = 7;
 
+/**
+ * Legacy application-level roles stored on users.
+ *
+ * Organization authorization must NOT be granted from this value.
+ * The active organization membership remains the authoritative source
+ * for organization-level permissions.
+ */
+export type LegacyUserRole =
+  | "ADMIN"
+  | "APPRAISER"
+  | "VIEWER";
+
+/**
+ * Authoritative organization membership roles.
+ *
+ * OWNER represents the company-level organization owner.
+ * ADMIN represents a delegated organization/workspace administrator.
+ * APPRAISER represents appraisal/review authority.
+ * VIEWER represents viewing/access authority.
+ *
+ * Keep this as the single reusable role definition for middleware,
+ * routes, services, and authorization helpers.
+ */
+export type OrganizationRole =
+  | "OWNER"
+  | "ADMIN"
+  | "APPRAISER"
+  | "VIEWER";
+
+/**
+ * Roles that can be explicitly required by authorization middleware.
+ *
+ * This is currently the same as OrganizationRole, but keeping the
+ * semantic alias allows the authorization API to evolve independently
+ * if additional permission concepts are introduced later.
+ */
+export type RequiredOrganizationRole =
+  OrganizationRole;
+
 export type AuthUser = {
   id: number;
   email: string;
   fullName: string | null;
-  role: "ADMIN" | "APPRAISER" | "VIEWER";
+  role: LegacyUserRole;
   isActive: boolean;
+};
+
+export type AuthOrganization = {
+  organizationId: number;
+  organizationName: string;
+  membershipId: number;
+  role: OrganizationRole;
 };
 
 export type AuthenticatedRequest = Request & {
   authUser?: AuthUser;
   authSessionId?: number;
+  authOrganization?: AuthOrganization;
 };
 
 export function normalizeEmail(value: unknown): string {
@@ -34,7 +81,7 @@ export function normalizeEmail(value: unknown): string {
 export async function createPasswordHash(
   password: string
 ): Promise<string> {
-  const salt = randomBytes(16).toString("hex");
+  const salt = randomBytes(16);
 
   const derivedKey = (await scrypt(
     password,
@@ -42,29 +89,86 @@ export async function createPasswordHash(
     64
   )) as Buffer;
 
-  return `${salt}:${derivedKey.toString("hex")}`;
+  return [
+    "scrypt",
+    salt.toString("hex"),
+    derivedKey.toString("hex"),
+  ].join("$");
 }
 
 export async function verifyPassword(
   password: string,
   storedHash: string
 ): Promise<boolean> {
-  const [salt, keyHex] = storedHash.split(":");
+  let salt: string;
+  let keyHex: string;
+
+  if (storedHash.startsWith("scrypt$")) {
+    const parts = storedHash.split("$");
+
+    if (parts.length !== 3) {
+      return false;
+    }
+
+    const parsedSalt = parts[1];
+    const parsedKeyHex = parts[2];
+
+    if (!parsedSalt || !parsedKeyHex) {
+      return false;
+    }
+
+    salt = parsedSalt;
+    keyHex = parsedKeyHex;
+  } else {
+    /*
+     * Preserve compatibility with the legacy salt:key format.
+     */
+    const parts = storedHash.split(":");
+
+    if (parts.length !== 2) {
+      return false;
+    }
+
+    const parsedSalt = parts[0];
+    const parsedKeyHex = parts[1];
+
+    if (!parsedSalt || !parsedKeyHex) {
+      return false;
+    }
+
+    salt = parsedSalt;
+    keyHex = parsedKeyHex;
+  }
 
   if (!salt || !keyHex) {
     return false;
   }
 
   try {
-    const storedKey = Buffer.from(keyHex, "hex");
+    const storedKey = Buffer.from(
+      keyHex,
+      "hex"
+    );
+
+    if (storedKey.length === 0) {
+      return false;
+    }
+
+    const saltBuffer = Buffer.from(
+      salt,
+      "hex"
+    );
 
     const derivedKey = (await scrypt(
       password,
-      salt,
+      saltBuffer,
       storedKey.length
     )) as Buffer;
 
-    if (derivedKey.length !== storedKey.length) {
+    if (
+      derivedKey.length !==
+      storedKey.length
+    ) {
       return false;
     }
 
@@ -149,6 +253,9 @@ export function clearSessionCookie(
       "Path=/",
       "Max-Age=0",
       "SameSite=Lax",
+      ...(process.env.NODE_ENV === "production"
+        ? ["Secure"]
+        : []),
     ].join("; ")
   );
 }
@@ -223,6 +330,59 @@ export async function findAuthenticatedUser(
   };
 }
 
+export async function findAuthenticatedOrganization(
+  pool: Pool,
+  userId: number
+): Promise<AuthOrganization | null> {
+  const result = await pool.query<{
+    membership_id: number;
+    organization_id: number;
+    organization_name: string;
+    role: OrganizationRole;
+  }>(
+    `
+      SELECT
+        om.id AS membership_id,
+        o.id AS organization_id,
+        o.name AS organization_name,
+        om.role
+      FROM organization_memberships om
+      INNER JOIN organizations o
+        ON o.id = om.organization_id
+      WHERE om.user_id = $1
+        AND om.is_active = TRUE
+        AND o.status = 'ACTIVE'
+      ORDER BY
+        CASE om.role
+          WHEN 'OWNER' THEN 1
+          WHEN 'ADMIN' THEN 2
+          WHEN 'APPRAISER' THEN 3
+          WHEN 'VIEWER' THEN 4
+          ELSE 5
+        END,
+        om.id
+      LIMIT 1
+    `,
+    [userId]
+  );
+
+  const row = result.rows[0];
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    organizationId:
+      Number(row.organization_id),
+    organizationName:
+      row.organization_name,
+    membershipId:
+      Number(row.membership_id),
+    role: row.role,
+  };
+}
+
 export function requireAuthentication(
   pool: Pool
 ) {
@@ -272,12 +432,110 @@ export function requireAuthentication(
   };
 }
 
+export function requireOrganizationContext(
+  pool: Pool
+) {
+  return async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const authenticatedRequest =
+        req as AuthenticatedRequest;
+
+      const authUser =
+        authenticatedRequest.authUser;
+
+      if (!authUser) {
+        res.status(401).json({
+          error:
+            "Authentication required.",
+        });
+        return;
+      }
+
+      const organization =
+        await findAuthenticatedOrganization(
+          pool,
+          authUser.id
+        );
+
+      if (!organization) {
+        res.status(403).json({
+          error:
+            "No active organization membership is available for this account.",
+        });
+        return;
+      }
+
+      authenticatedRequest.authOrganization =
+        organization;
+
+      next();
+    } catch (error) {
+      console.error(
+        "Organization context middleware error:",
+        error
+      );
+
+      res.status(500).json({
+        error:
+          "Organization context could not be resolved.",
+      });
+    }
+  };
+}
+
+/**
+ * Converts the authoritative organization role into the effective
+ * legacy permission level used by existing ADMIN-level routes.
+ *
+ * OWNER has all existing ADMIN-level capabilities.
+ *
+ * This mapping does NOT elevate ADMIN to OWNER and does NOT allow
+ * APPRAISER or VIEWER to inherit administrative permissions.
+ *
+ * Keep this compatibility mapping centralized so future authorization
+ * changes do not require duplicating OWNER/ADMIN logic throughout
+ * individual routes.
+ */
+export function getEffectiveRole(
+  organizationRole: OrganizationRole
+): LegacyUserRole {
+  if (organizationRole === "OWNER") {
+    return "ADMIN";
+  }
+
+  return organizationRole;
+}
+
+/**
+ * Organization-level authorization middleware.
+ *
+ * Authorization is derived exclusively from the active organization
+ * membership. The legacy users.role field must never silently grant
+ * organization privileges.
+ *
+ * Examples:
+ *
+ *   requireRole("OWNER")
+ *     -> OWNER only
+ *
+ *   requireRole("OWNER", "ADMIN")
+ *     -> OWNER or ADMIN
+ *
+ *   requireRole("ADMIN")
+ *     -> OWNER or ADMIN, because OWNER inherits ADMIN capabilities
+ *
+ *   requireRole("APPRAISER")
+ *     -> APPRAISER only
+ *
+ *   requireRole("VIEWER")
+ *     -> VIEWER only
+ */
 export function requireRole(
-  ...allowedRoles: Array<
-    "ADMIN" |
-    "APPRAISER" |
-    "VIEWER"
-  >
+  ...allowedRoles: RequiredOrganizationRole[]
 ) {
   return (
     req: Request,
@@ -299,9 +557,48 @@ export function requireRole(
       return;
     }
 
+    const organizationRole =
+      authenticatedRequest.authOrganization
+        ?.role;
+
+    if (!organizationRole) {
+      res.status(403).json({
+        success: false,
+        error:
+          "An active organization membership is required to perform this action",
+      });
+      return;
+    }
+
+    /*
+     * OWNER is the company-level administrator/owner.
+     *
+     * OWNER inherits existing ADMIN-level capabilities, but ADMIN
+     * does not become OWNER. This preserves the intended hierarchy:
+     *
+     * OWNER
+     *   └── ADMIN
+     *        ├── APPRAISER
+     *        └── VIEWER
+     *
+     * The actual permission check is still performed against the
+     * authoritative organization membership role.
+     */
+    const effectiveRole =
+      getEffectiveRole(
+        organizationRole
+      );
+
+    /*
+     * Explicit OWNER authorization must remain distinct.
+     *
+     * If a route requires OWNER, an ADMIN must not satisfy it merely
+     * because ADMIN is a delegated administrative role.
+     */
     if (
+      allowedRoles.includes("OWNER") &&
       !allowedRoles.includes(
-        user.role
+        organizationRole
       )
     ) {
       res.status(403).json({
@@ -312,6 +609,39 @@ export function requireRole(
       return;
     }
 
-    next();
+    /*
+     * Direct organization-role authorization.
+     *
+     * This allows routes to explicitly declare the organization
+     * membership roles they accept.
+     */
+    if (
+      allowedRoles.includes(
+        organizationRole
+      )
+    ) {
+      next();
+      return;
+    }
+
+    /*
+     * OWNER inherits ADMIN-level permissions.
+     *
+     * This is intentionally limited to ADMIN authorization and does
+     * not grant OWNER status to any other role.
+     */
+    if (
+      effectiveRole === "ADMIN" &&
+      allowedRoles.includes("ADMIN")
+    ) {
+      next();
+      return;
+    }
+
+    res.status(403).json({
+      success: false,
+      error:
+        "You do not have permission to perform this action",
+    });
   };
 }
