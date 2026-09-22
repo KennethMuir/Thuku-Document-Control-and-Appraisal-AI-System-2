@@ -34,7 +34,6 @@ export const importBulkMetadata = async (
 
 export const createMetadata = async (
   data: {
-    referenceCode: string;
     personName: string | null;
     title: string | null;
     departmentId: string | null;
@@ -55,4 +54,13 @@ export const createMetadata = async (
   );
 };
 
-
+export const getMetadataOutput = async (
+  metadataRecordId: number
+): Promise<Response> => {
+  return apiFetch(
+    `/api/metadata-output/${metadataRecordId}`,
+    {
+      method: "GET",
+    }
+  );
+};

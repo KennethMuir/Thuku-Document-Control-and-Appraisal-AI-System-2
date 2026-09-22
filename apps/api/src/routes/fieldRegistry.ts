@@ -221,15 +221,6 @@ export function createFieldRegistryRouter(pool: Pool) {
         unit,
         default_value,
       } = req.body;
-
-      if (!field_key || !display_name) {
-        res.status(400).json({
-          success: false,
-          error: "field_key and display_name are required.",
-        });
-        return;
-      }
-
       const validDataTypes = [
         "text",
         "integer",
@@ -241,9 +232,51 @@ export function createFieldRegistryRouter(pool: Pool) {
         "email",
         "url",
         "reference",
-        "json",
         "controlled_vocabulary",
       ];
+      const validCategories = [
+        "Identity",
+        "Dates",
+        "People",
+        "Organizations",
+        "Records Management",
+        "Administrative",
+        "Governance",
+        "Subject / Classification",
+        "Legal / Regulatory",
+        "Security",
+        "Compliance",
+        "Risk",
+        "Audit",
+        "Financial",
+        "Procurement",
+        "Contracts",
+        "Human Resources",
+        "Projects",
+        "Operations",
+        "Engineering",
+        "Aviation",
+        "Medical / Healthcare",
+        "Research / Scientific",
+        "Education",
+        "Geographic",
+        "Technical",
+        "Media / Audiovisual",
+        "Archival",
+        "Preservation",
+        "Workflow / Approval",
+        "Relationships",
+        "Environmental",
+      ];
+
+      if (!field_key || !display_name) {
+        res.status(400).json({
+          success: false,
+          error: "field_key and display_name are required.",
+        });
+        return;
+      }
+
 
       if (!validDataTypes.includes(data_type)) {
         res.status(400).json({
@@ -253,21 +286,6 @@ export function createFieldRegistryRouter(pool: Pool) {
         return;
       }
 
-      const validCategories = [
-        "Identity",
-        "Dates",
-        "People",
-        "Organizations",
-        "Subject / Classification",
-        "Legal / Regulatory",
-        "Financial",
-        "Procurement",
-        "Aviation",
-        "Medical",
-        "Research / Scientific",
-        "Technical",
-        "Preservation",
-      ];
 
       if (!validCategories.includes(category)) {
         res.status(400).json({
@@ -469,7 +487,6 @@ export function createFieldRegistryRouter(pool: Pool) {
         unit,
         default_value,
       } = req.body;
-
       const validDataTypes = [
         "text",
         "integer",
@@ -481,25 +498,44 @@ export function createFieldRegistryRouter(pool: Pool) {
         "email",
         "url",
         "reference",
-        "json",
         "controlled_vocabulary",
       ];
-
       const validCategories = [
         "Identity",
         "Dates",
         "People",
         "Organizations",
+        "Records Management",
+        "Administrative",
+        "Governance",
         "Subject / Classification",
         "Legal / Regulatory",
+        "Security",
+        "Compliance",
+        "Risk",
+        "Audit",
         "Financial",
         "Procurement",
+        "Contracts",
+        "Human Resources",
+        "Projects",
+        "Operations",
+        "Engineering",
         "Aviation",
-        "Medical",
+        "Medical / Healthcare",
         "Research / Scientific",
+        "Education",
+        "Geographic",
         "Technical",
+        "Media / Audiovisual",
+        "Archival",
         "Preservation",
+        "Workflow / Approval",
+        "Relationships",
+        "Environmental",
       ];
+
+
 
       if (
         data_type !== undefined &&
