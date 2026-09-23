@@ -1,7 +1,5 @@
 "use client";
 
-import { UniversalMetadataCatalogue } from "@/components/metadata/UniversalMetadataCatalogue";
-
 import React from "react";
 import type {
   Dispatch,
@@ -9,34 +7,32 @@ import type {
   SetStateAction,
 } from "react";
 
-import type {
-  Department,
-} from "@/types/departments";
 
-import type {
-  UploadedDocument,
-} from "@/types/documents";
+import type { Department } from "@/types/departments";
 
-import type {
-  MetadataRecord,
-} from "@/types/metadata";
+import type { UploadedDocument } from "@/types/documents";
+
+import type { MetadataRecord } from "@/types/metadata";
 
 import {
   formatDate,
   formatFileSize,
 } from "@/lib/utils/formatting";
 
-import {
-  useFieldRegistry,
-  type FieldDefinition,
-} from "@/hooks/useFieldRegistry";
+import { useFieldRegistry } from "@/hooks/useFieldRegistry";
 
 import MetadataOutputPanel from "@/components/metadata/MetadataOutputPanel";
+
+import { UniversalMetadataGuide } from "@/components/metadata/UniversalMetadataGuide";
+
+import { FieldRegistryGuide } from "@/components/metadata/FieldRegistryGuide";
 
 
 type MetadataRegistryProps = {
   metadata: MetadataRecord[];
+
   departments: Department[];
+
   documents: UploadedDocument[];
 
   selectedDepartment:
@@ -132,9 +128,53 @@ export function MetadataRegistry({
     setSelectedMetadataRecord,
   ] = React.useState<MetadataRecord | null>(null);
 
+  const [
+    showUniversalMetadataGuide,
+    setShowUniversalMetadataGuide,
+  ] = React.useState(false);
+
+  const [
+    showFieldRegistryGuide,
+    setShowFieldRegistryGuide,
+  ] = React.useState(false);
+
   return (
     <>
-      <UniversalMetadataCatalogue fields={fieldDefinitions} />
+
+      <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">
+            Universal Metadata
+          </p>
+
+          <p className="mt-1 text-sm text-slate-500">
+            Browse the universal metadata catalogue and its field groups.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() =>
+            setShowUniversalMetadataGuide(
+              (current) => !current
+            )
+          }
+          className="shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+        >
+          {showUniversalMetadataGuide
+            ? "Hide Guide"
+            : "Learn more"}
+        </button>
+      </div>
+
+      {showUniversalMetadataGuide && (
+        <UniversalMetadataGuide
+          onClose={() =>
+            setShowUniversalMetadataGuide(false)
+          }
+        />
+      )}
+
 
       {selectedDepartment && (
         <section className="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -326,7 +366,8 @@ export function MetadataRegistry({
           >
             + Register Metadata
           </button>
-{canManageMetadata && (
+
+          {canManageMetadata && (
             <button
               type="button"
               onClick={() =>
@@ -446,175 +487,212 @@ export function MetadataRegistry({
               <tbody>
                 {filteredMetadata.map(
                   (record) => (
-                    <tr
+                    <React.Fragment
                       key={record.id}
-                      className="border-b border-slate-100 last:border-0 hover:bg-slate-50"
                     >
-                      <td className="px-5 py-5">
-                        <div className="font-semibold">
-                          {record.reference_code}
-                        </div>
-                      </td>
-
-                      <td className="px-5 py-5">
-                        <a
-                          href={`/metadata/${record.id}/documents`}
-                          className="block w-full rounded-lg text-left transition hover:bg-blue-50/70 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                        >
-                          <div className="font-medium text-slate-800">
-                            {record.title ||
-                              "Untitled"}
+                      <tr
+                        className="border-b border-slate-100 last:border-0 hover:bg-slate-50"
+                      >
+                        <td className="px-5 py-5">
+                          <div className="font-semibold">
+                            {record.reference_code}
                           </div>
+                        </td>
 
-                          {record.linked_document_code && (
-                            <div className="mt-1 text-xs font-semibold text-blue-600">
-                              {
-                                record.linked_document_code
-                              }
-                            </div>
-                          )}
-
-                          <div className="mt-2 text-xs font-semibold text-blue-600">
-                            {record.linked_documents?.length ?? 0}{" "}
-                            {(record.linked_documents?.length ?? 0) === 1
-                              ? "document"
-                              : "documents"}
-                            {" · View aligned documents"}
-                          </div>
-                        </a>
-                      </td>
-
-                      <td className="px-5 py-5">
-                        {record.person_name ||
-                          "—"}
-                      </td>
-
-                      <td className="px-5 py-5">
-                        {record.department_name ||
-                          "—"}
-                      </td>
-
-                      <td className="px-5 py-5">
-                        {record.document_type_name ||
-                          "—"}
-                      </td>
-
-                      <td className="px-5 py-5 text-sm text-slate-600">
-                        {record.section ||
-                          "—"}
-                      </td>
-
-                      <td className="px-5 py-5">
-                        {formatDate(
-                          record.document_date
-                        )}
-                      </td>
-
-                      <td className="px-5 py-5">
-                        <StatusBadge
-                          status={
-                            record.status
-                          }
-                        />
-                      </td>
-
-                      <td className="px-5 py-5 align-top">
-                        <div className="mb-3">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setSelectedMetadataRecord(record)
-                            }
-                            className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition hover:border-indigo-400 hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                        <td className="px-5 py-5">
+                          <a
+                            href={`/metadata/${record.id}/documents`}
+                            className="block w-full rounded-lg text-left transition hover:bg-blue-50/70 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                           >
-                            {selectedMetadataRecord?.id === record.id
-                              ? "Hide Universal Metadata"
-                              : "Universal Metadata"}
-                          </button>
-                        </div>
-                        {record.additional_metadata &&
-                        Object.keys(
-                          record.additional_metadata
-                        ).length > 0 ? (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setExpandedAdditionalMetadata(
-                                  (current) => {
-                                    const next =
-                                      new Set(
-                                        current
-                                      );
+                            <div className="font-medium text-slate-800">
+                              {record.title ||
+                                "Untitled"}
+                            </div>
 
-                                    if (
-                                      next.has(
-                                        record.id
-                                      )
-                                    ) {
-                                      next.delete(
-                                        record.id
-                                      );
-                                    } else {
-                                      next.add(
-                                        record.id
-                                      );
-                                    }
-
-                                    return next;
-                                  }
-                                );
-                              }}
-                              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
-                            >
-                              {expandedAdditionalMetadata.has(
-                                record.id
-                              )
-                                ? "Hide Additional Metadata"
-                                : "Additional Metadata"}
-                            </button>
-
-                            {expandedAdditionalMetadata.has(
-                              record.id
-                            ) && (
-                              <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                                {Object.entries(
-                                  record.additional_metadata
-                                ).map(
-                                  ([
-                                    key,
-                                    value,
-                                  ]) => (
-                                    <div
-                                      key={key}
-                                      className="text-xs text-slate-600"
-                                    >
-                                      <span className="font-semibold text-slate-700">
-                                        {key}:
-                                      </span>{" "}
-                                      {value ===
-                                        null ||
-                                      value ===
-                                        undefined ||
-                                      value ===
-                                        ""
-                                        ? "—"
-                                        : String(
-                                            value
-                                          )}
-                                    </div>
-                                  )
-                                )}
+                            {record.linked_document_code && (
+                              <div className="mt-1 text-xs font-semibold text-blue-600">
+                                {
+                                  record.linked_document_code
+                                }
                               </div>
                             )}
-                          </>
-                        ) : (
-                          <span className="text-sm text-slate-400">
-                            —
-                          </span>
-                        )}
-                      </td>
-                    </tr>
+
+                            <div className="mt-2 text-xs font-semibold text-blue-600">
+                              {record.linked_documents?.length ?? 0}{" "}
+                              {(record.linked_documents?.length ?? 0) === 1
+                                ? "document"
+                                : "documents"}
+                              {" · View aligned documents"}
+                            </div>
+                          </a>
+                        </td>
+
+                        <td className="px-5 py-5">
+                          {record.person_name ||
+                            "—"}
+                        </td>
+
+                        <td className="px-5 py-5">
+                          {record.department_name ||
+                            "—"}
+                        </td>
+
+                        <td className="px-5 py-5">
+                          {record.document_type_name ||
+                            "—"}
+                        </td>
+
+                        <td className="px-5 py-5 text-sm text-slate-600">
+                          {record.section ||
+                            "—"}
+                        </td>
+
+                        <td className="px-5 py-5">
+                          {formatDate(
+                            record.document_date
+                          )}
+                        </td>
+
+                        <td className="px-5 py-5">
+                          <StatusBadge
+                            status={
+                              record.status
+                            }
+                          />
+                        </td>
+
+                        <td className="px-5 py-5 align-top">
+                          <div className="mb-3">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelectedMetadataRecord(
+                                  (current) =>
+                                    current?.id === record.id
+                                      ? null
+                                      : record
+                                )
+                              }
+                              className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition hover:border-indigo-400 hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                            >
+                              {selectedMetadataRecord?.id ===
+                              record.id
+                                ? "Hide Universal Metadata"
+                                : "Universal Metadata"}
+                            </button>
+                          </div>
+
+                          {record.additional_metadata &&
+                          Object.keys(
+                            record.additional_metadata
+                          ).length > 0 ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setExpandedAdditionalMetadata(
+                                    (current) => {
+                                      const next =
+                                        new Set(
+                                          current
+                                        );
+
+                                      if (
+                                        next.has(
+                                          record.id
+                                        )
+                                      ) {
+                                        next.delete(
+                                          record.id
+                                        );
+                                      } else {
+                                        next.add(
+                                          record.id
+                                        );
+                                      }
+
+                                      return next;
+                                    }
+                                  );
+                                }}
+                                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+                              >
+                                {expandedAdditionalMetadata.has(
+                                  record.id
+                                )
+                                  ? "Hide Additional Metadata"
+                                  : "Additional Metadata"}
+                              </button>
+
+                              {expandedAdditionalMetadata.has(
+                                record.id
+                              ) && (
+                                <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                  {Object.entries(
+                                    record.additional_metadata
+                                  ).map(
+                                    ([
+                                      key,
+                                      value,
+                                    ]) => (
+                                      <div
+                                        key={key}
+                                        className="text-xs text-slate-600"
+                                      >
+                                        <span className="font-semibold text-slate-700">
+                                          {key}:
+                                        </span>{" "}
+                                        {value ===
+                                          null ||
+                                        value ===
+                                          undefined ||
+                                        value ===
+                                          ""
+                                          ? "—"
+                                          : String(
+                                              value
+                                            )}
+                                      </div>
+                                    )
+                                  )}
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-sm text-slate-400">
+                              —
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+
+                      {selectedMetadataRecord?.id ===
+                        record.id && (
+                        <tr>
+                          <td
+                            colSpan={9}
+                            className="p-0"
+                          >
+                            <MetadataOutputPanel
+                              metadataRecordId={Number(
+                                record.id
+                              )}
+                              metadataTitle={
+                                record.title
+                              }
+                              metadataReferenceCode={
+                                record.reference_code
+                              }
+                              onClose={() =>
+                                setSelectedMetadataRecord(
+                                  null
+                                )
+                              }
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   )
                 )}
               </tbody>
@@ -622,15 +700,8 @@ export function MetadataRegistry({
           </div>
         )}
       </div>
-      {selectedMetadataRecord && (
-        <MetadataOutputPanel
-          metadataRecordId={Number(selectedMetadataRecord.id)}
-          metadataTitle={selectedMetadataRecord.title}
-          metadataReferenceCode={selectedMetadataRecord.reference_code}
-          onClose={() => setSelectedMetadataRecord(null)}
-        />
-      )}
-{canManageMetadata &&
+
+      {canManageMetadata &&
         fieldLoading && (
           <div className="mb-8 mt-8 rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
             <p
@@ -642,215 +713,48 @@ export function MetadataRegistry({
             </p>
           </div>
         )}
-{canManageMetadata &&
+
+      {canManageMetadata &&
         !fieldLoading &&
         fieldDefinitions.length > 0 && (
-          <div className="mb-8 mt-8 rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-200 px-6 py-4">
-              <h2 className="text-xl font-bold text-slate-950">
-                Field Registry
-              </h2>
+          <>
+            <div className="mb-8 mt-8 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">
+                  Field Registry
+                </p>
 
-              <p className="mt-1 text-sm text-slate-500">
-                Universal metadata fields available to this
-                organization.
-              </p>
-            </div>
-
-            <div className="px-6 py-4">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="border-b border-slate-200 bg-slate-50">
-                    <tr>
-                      <th className="px-5 py-4 font-semibold">
-                        Field Key
-                      </th>
-
-                      <th className="px-5 py-4 font-semibold">
-                        Display Name
-                      </th>
-
-                      <th className="px-5 py-4 font-semibold">
-                        Category
-                      </th>
-
-                      <th className="px-5 py-4 font-semibold">
-                        Data Type
-                      </th>
-
-                      <th className="px-5 py-4 font-semibold">
-                        Repeatable
-                      </th>
-
-                      <th className="px-5 py-4 font-semibold">
-                        Searchable
-                      </th>
-
-                      <th className="px-5 py-4 font-semibold">
-                        Filterable
-                      </th>
-
-                      <th className="px-5 py-4 font-semibold">
-                        Sortable
-                      </th>
-
-                      <th className="px-5 py-4 font-semibold">
-                        AI Extractable
-                      </th>
-
-                      <th className="px-5 py-4 font-semibold">
-                        User Editable
-                      </th>
-
-                      <th className="px-5 py-4 font-semibold">
-                        Sensitive
-                      </th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {fieldDefinitions.map(
-                      (field) => (
-                        <tr
-                          key={field.id}
-                          className="border-b border-slate-100 last:border-0 hover:bg-slate-50"
-                        >
-                          <td className="px-5 py-5">
-                            <div className="font-semibold text-blue-600">
-                              {field.field_key}
-                            </div>
-                          </td>
-
-                          <td className="px-5 py-5">
-                            <div className="font-medium">
-                              {field.display_name}
-                            </div>
-
-                            <div className="text-xs text-slate-500">
-                              {field.description ||
-                                "—"}
-                            </div>
-                          </td>
-
-                          <td className="px-5 py-5">
-                            <div className="text-xs text-slate-500">
-                              {field.category}
-                            </div>
-                          </td>
-
-                          <td className="px-5 py-5">
-                            <div className="text-xs text-slate-500">
-                              {field.data_type}
-                            </div>
-                          </td>
-
-                          <td className="px-5 py-5">
-                            <div
-                              className={
-                                field.repeatable
-                                  ? "text-xs font-medium text-emerald-700"
-                                  : "text-slate-400"
-                              }
-                            >
-                              {field.repeatable
-                                ? "Yes"
-                                : "No"}
-                            </div>
-                          </td>
-
-                          <td className="px-5 py-5">
-                            <div
-                              className={
-                                field.searchable
-                                  ? "text-xs font-medium text-emerald-700"
-                                  : "text-slate-400"
-                              }
-                            >
-                              {field.searchable
-                                ? "Yes"
-                                : "No"}
-                            </div>
-                          </td>
-
-                          <td className="px-5 py-5">
-                            <div
-                              className={
-                                field.filterable
-                                  ? "text-xs font-medium text-emerald-700"
-                                  : "text-slate-400"
-                              }
-                            >
-                              {field.filterable
-                                ? "Yes"
-                                : "No"}
-                            </div>
-                          </td>
-
-                          <td className="px-5 py-5">
-                            <div
-                              className={
-                                field.sortable
-                                  ? "text-xs font-medium text-emerald-700"
-                                  : "text-slate-400"
-                              }
-                            >
-                              {field.sortable
-                                ? "Yes"
-                                : "No"}
-                            </div>
-                          </td>
-
-                          <td className="px-5 py-5">
-                            <div
-                              className={
-                                field.ai_extractable
-                                  ? "text-xs font-medium text-emerald-700"
-                                  : "text-slate-400"
-                              }
-                            >
-                              {field.ai_extractable
-                                ? "Yes"
-                                : "No"}
-                            </div>
-                          </td>
-
-                          <td className="px-5 py-5">
-                            <div
-                              className={
-                                field.user_editable
-                                  ? "text-xs font-medium text-emerald-700"
-                                  : "text-slate-400"
-                              }
-                            >
-                              {field.user_editable
-                                ? "Yes"
-                                : "No"}
-                            </div>
-                          </td>
-
-                          <td className="px-5 py-5">
-                            <div
-                              className={
-                                field.sensitive
-                                  ? "text-xs font-medium text-red-700"
-                                  : "text-slate-400"
-                              }
-                            >
-                              {field.sensitive
-                                ? "Yes"
-                                : "No"}
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    )}
-                  </tbody>
-                </table>
+                <p className="mt-1 text-sm text-slate-500">
+                  Browse the organization field registry and its metadata capabilities.
+                </p>
               </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setShowFieldRegistryGuide(
+                    (current) => !current
+                  )
+                }
+                className="shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+              >
+                {showFieldRegistryGuide
+                  ? "Hide Guide"
+                  : "Learn more"}
+              </button>
             </div>
-          </div>
+
+            {showFieldRegistryGuide && (
+              <FieldRegistryGuide
+                onClose={() =>
+                  setShowFieldRegistryGuide(false)
+                }
+              />
+            )}
+          </>
         )}
-{canManageMetadata &&
+
+      {canManageMetadata &&
         !fieldLoading &&
         !fieldError &&
         fieldDefinitions.length === 0 && (
@@ -883,6 +787,7 @@ export function MetadataRegistry({
     </>
   );
 }
+
 
 
 
