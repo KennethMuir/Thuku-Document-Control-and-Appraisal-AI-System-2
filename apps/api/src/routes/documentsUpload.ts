@@ -26,6 +26,10 @@ import {
 } from "../services/audit.js";
 
 import {
+  generateMetadataReferenceCode,
+} from "../services/metadataReferenceCode.js";
+
+import {
   LocalFileStorage,
 } from "../services/storage.js";
 
@@ -48,7 +52,10 @@ type ProvisionalUpload = {
     referenceCode?: string | null;
   };
   bestMatch: {
-    matchType: "STRONG_MATCH" | "PARTIAL_MATCH" | "NO_MATCH";
+    matchType:
+      | "STRONG_MATCH"
+      | "PARTIAL_MATCH"
+      | "NO_MATCH";
     confidence: number;
     metadataRecordId: number | null;
     matchingFields: string[];
@@ -87,13 +94,15 @@ async function readProvisionalUpload(
 async function deleteProvisionalUpload(
   upload: ProvisionalUpload
 ): Promise<void> {
-  await fs.promises.unlink(
-    upload.temporaryPath
-  ).catch(() => undefined);
+  await fs.promises
+    .unlink(upload.temporaryPath)
+    .catch(() => undefined);
 
-  await fs.promises.unlink(
-    provisionalStatePath(upload.temporaryPath)
-  ).catch(() => undefined);
+  await fs.promises
+    .unlink(
+      provisionalStatePath(upload.temporaryPath)
+    )
+    .catch(() => undefined);
 }
 
 function parseToken(
@@ -113,6 +122,13 @@ function normalizeMetadataPayload(
   payload: any
 ) {
   return {
+    /*
+     * This value may still arrive from extracted metadata
+     * or legacy frontend state and may be useful for
+     * matching/display purposes.
+     *
+     * It is NOT used to create a new metadata reference.
+     */
     referenceCode:
       typeof payload?.referenceCode === "string"
         ? payload.referenceCode.trim()
@@ -168,12 +184,13 @@ function normalizeMetadataPayload(
 }
 
 function validateRequiredMetadata(
-  metadata: ReturnType<typeof normalizeMetadataPayload>
+  metadata: ReturnType<
+    typeof normalizeMetadataPayload
+  >
 ): string | null {
   const required: Array<
     [string, unknown]
   > = [
-    ["Reference Code", metadata.referenceCode],
     ["Title", metadata.title],
     ["Document Date", metadata.documentDate],
     ["Year", metadata.year],
@@ -246,9 +263,9 @@ export function createDocumentsUploadRouter(
           ?.organizationId;
 
       if (!ownerUser) {
-        await fs.promises.unlink(
-          temporaryPath
-        ).catch(() => undefined);
+        await fs.promises
+          .unlink(temporaryPath)
+          .catch(() => undefined);
 
         return res.status(401).json({
           success: false,
@@ -261,13 +278,14 @@ export function createDocumentsUploadRouter(
         !Number.isInteger(organizationId) ||
         organizationId <= 0
       ) {
-        await fs.promises.unlink(
-          temporaryPath
-        ).catch(() => undefined);
+        await fs.promises
+          .unlink(temporaryPath)
+          .catch(() => undefined);
 
         return res.status(403).json({
           success: false,
-          error: "Organization context is required",
+          error:
+            "Organization context is required",
         });
       }
 
@@ -276,14 +294,16 @@ export function createDocumentsUploadRouter(
           req.file.originalname;
 
         const extension =
-          path.extname(originalName).toLowerCase();
+          path
+            .extname(originalName)
+            .toLowerCase();
 
         if (
           ![".pdf", ".docx"].includes(extension)
         ) {
-          await fs.promises.unlink(
-            temporaryPath
-          ).catch(() => undefined);
+          await fs.promises
+            .unlink(temporaryPath)
+            .catch(() => undefined);
 
           return res.status(400).json({
             success: false,
@@ -444,10 +464,14 @@ export function createDocumentsUploadRouter(
         };
 
         const extractedSection =
-          extractLabeledValue(["Section"]);
+          extractLabeledValue([
+            "Section",
+          ]);
 
         const extractedDescription =
-          extractLabeledValue(["Description"]);
+          extractLabeledValue([
+            "Description",
+          ]);
 
         const extractedDepartment =
           extractLabeledValue([
@@ -503,12 +527,14 @@ export function createDocumentsUploadRouter(
                   WHERE (
                     (
                       $1::text IS NOT NULL
-                      AND LOWER(code) = LOWER($1::text)
+                      AND LOWER(code) =
+                          LOWER($1::text)
                     )
                     OR
                     (
                       $2::text IS NOT NULL
-                      AND LOWER(name) = LOWER($2::text)
+                      AND LOWER(name) =
+                          LOWER($2::text)
                     )
                   )
                   AND organization_id = $3
@@ -539,7 +565,8 @@ export function createDocumentsUploadRouter(
                 `
                   SELECT id, name
                   FROM document_types
-                  WHERE LOWER(name) = LOWER($1)
+                  WHERE LOWER(name) =
+                        LOWER($1)
                     AND organization_id = $2
                   LIMIT 1
                 `,
@@ -649,6 +676,13 @@ export function createDocumentsUploadRouter(
             bestMatch.metadataRecordId ??
             null,
 
+          /*
+           * Existing metadata keeps its existing
+           * reference code.
+           *
+           * A newly created metadata reference is
+           * generated only during confirmation.
+           */
           reference_code:
             metadata?.reference_code ??
             extracted.referenceCode ??
@@ -779,20 +813,25 @@ export function createDocumentsUploadRouter(
           error
         );
 
-        await fs.promises.unlink(
-          temporaryPath
-        ).catch(() => undefined);
+        await fs.promises
+          .unlink(temporaryPath)
+          .catch(() => undefined);
 
-        await fs.promises.unlink(
-          provisionalStatePath(temporaryPath)
-        ).catch(() => undefined);
+        await fs.promises
+          .unlink(
+            provisionalStatePath(
+              temporaryPath
+            )
+          )
+          .catch(() => undefined);
 
         return res.status(500).json({
           success: false,
           error:
             "Unable to process document for review",
           details:
-            process.env.NODE_ENV === "development" &&
+            process.env.NODE_ENV ===
+              "development" &&
             error instanceof Error
               ? error.message
               : undefined,
@@ -849,7 +888,9 @@ export function createDocumentsUploadRouter(
 
       const requestedMetadataRecordId =
         req.body?.metadataRecordId
-          ? Number(req.body.metadataRecordId)
+          ? Number(
+              req.body.metadataRecordId
+            )
           : null;
 
       try {
@@ -857,7 +898,8 @@ export function createDocumentsUploadRouter(
       } catch {
         return res.status(400).json({
           success: false,
-          error: "A valid upload token is required",
+          error:
+            "A valid upload token is required",
         });
       }
 
@@ -900,14 +942,19 @@ export function createDocumentsUploadRouter(
               await readProvisionalUpload(
                 path.join(
                   directory,
-                  entry.replace(/\.json$/, "")
+                  entry.replace(
+                    /\.json$/,
+                    ""
+                  )
                 )
               );
 
             if (
               candidate.token === token &&
-              candidate.organizationId === organizationId &&
-              candidate.ownerUserId === ownerUser.id
+              candidate.organizationId ===
+                organizationId &&
+              candidate.ownerUserId ===
+                ownerUser.id
             ) {
               provisional = candidate;
               break;
@@ -921,6 +968,7 @@ export function createDocumentsUploadRouter(
           break;
         }
       }
+
       if (!provisional) {
         return res.status(404).json({
           success: false,
@@ -958,6 +1006,13 @@ export function createDocumentsUploadRouter(
         let metadataRecordId =
           requestedMetadataRecordId;
 
+        /*
+         * EXISTING METADATA
+         *
+         * Preserve the existing metadata reference
+         * code. The document gets a new DOC-X number,
+         * but the metadata reference is never replaced.
+         */
         if (metadataRecordId) {
           const metadataResult =
             await client.query(
@@ -984,7 +1039,8 @@ export function createDocumentsUploadRouter(
             metadataResult.rows[0];
 
           if (
-            metadataPayload.departmentId !== null
+            metadataPayload.departmentId !==
+            null
           ) {
             const department =
               await client.query(
@@ -1008,7 +1064,8 @@ export function createDocumentsUploadRouter(
           }
 
           if (
-            metadataPayload.documentTypeId !== null
+            metadataPayload.documentTypeId !==
+            null
           ) {
             const documentType =
               await client.query(
@@ -1035,31 +1092,28 @@ export function createDocumentsUploadRouter(
             `
               UPDATE metadata_records
               SET
-                reference_code =
-                  COALESCE($1, reference_code),
                 title =
-                  COALESCE($2, title),
+                  COALESCE($1, title),
                 person_name =
-                  COALESCE($3, person_name),
+                  COALESCE($2, person_name),
                 department_id =
-                  COALESCE($4, department_id),
+                  COALESCE($3, department_id),
                 document_type_id =
-                  COALESCE($5, document_type_id),
+                  COALESCE($4, document_type_id),
                 section =
-                  COALESCE($6, section),
+                  COALESCE($5, section),
                 year =
-                  COALESCE($7, year),
+                  COALESCE($6, year),
                 document_date =
-                  COALESCE($8, document_date),
+                  COALESCE($7, document_date),
                 description =
-                  COALESCE($9, description),
+                  COALESCE($8, description),
                 status = 'DOCUMENT_LINKED',
                 updated_at = NOW()
-              WHERE id = $10
-                AND organization_id = $11
+              WHERE id = $9
+                AND organization_id = $10
             `,
             [
-              metadataPayload.referenceCode,
               metadataPayload.title,
               metadataPayload.personName,
               metadataPayload.departmentId,
@@ -1073,35 +1127,40 @@ export function createDocumentsUploadRouter(
             ]
           );
         } else {
+          /*
+           * NEW METADATA
+           *
+           * A reference code is NOT supplied by the user.
+           * It is generated automatically from the selected
+           * department code while the confirmation transaction
+           * is active.
+           */
           const validationError =
             validateRequiredMetadata(
               metadataPayload
             );
 
           if (validationError) {
-            throw new Error(validationError);
-          }
-
-          const duplicate =
-            await client.query(
-              `
-                SELECT id
-                FROM metadata_records
-                WHERE organization_id = $1
-                  AND reference_code = $2
-                LIMIT 1
-              `,
-              [
-                organizationId,
-                metadataPayload.referenceCode,
-              ]
-            );
-
-          if (duplicate.rows[0]) {
             throw new Error(
-              "That metadata reference code already exists."
+              validationError
             );
           }
+
+          if (
+            metadataPayload.departmentId ===
+            null
+          ) {
+            throw new Error(
+              "Department is required to create metadata."
+            );
+          }
+
+          const referenceCode =
+            await generateMetadataReferenceCode(
+              client,
+              organizationId,
+              metadataPayload.departmentId
+            );
 
           const inserted =
             await client.query(
@@ -1137,7 +1196,7 @@ export function createDocumentsUploadRouter(
                 RETURNING *
               `,
               [
-                metadataPayload.referenceCode,
+                referenceCode,
                 metadataPayload.title,
                 metadataPayload.personName,
                 metadataPayload.departmentId,
@@ -1154,9 +1213,20 @@ export function createDocumentsUploadRouter(
             );
 
           metadataRecordId =
-            Number(inserted.rows[0].id);
+            Number(
+              inserted.rows[0].id
+            );
         }
 
+        /*
+         * DOCUMENT NUMBER
+         *
+         * Document codes remain globally numbered:
+         * DOC-1, DOC-2, DOC-3...
+         *
+         * This is completely independent from
+         * department-based metadata references.
+         */
         const codeResult =
           await client.query(`
             SELECT nextval(
@@ -1166,11 +1236,14 @@ export function createDocumentsUploadRouter(
 
         const uploadNumber =
           Number(
-            codeResult.rows[0].upload_number
+            codeResult.rows[0]
+              .upload_number
           );
 
         if (
-          !Number.isInteger(uploadNumber) ||
+          !Number.isInteger(
+            uploadNumber
+          ) ||
           uploadNumber <= 0
         ) {
           throw new Error(
@@ -1380,10 +1453,10 @@ export function createDocumentsUploadRouter(
               metadataRecordId,
               latestMatch.matchType,
               latestMatch.confidence,
-              latestMatch.matchingFields.join(", ") ||
-                null,
-              latestMatch.conflictingFields.join(", ") ||
-                null,
+              latestMatch.matchingFields
+                .join(", ") || null,
+              latestMatch.conflictingFields
+                .join(", ") || null,
             ]
           );
 
@@ -1411,11 +1484,13 @@ export function createDocumentsUploadRouter(
 
         await client.query("COMMIT");
 
-        await fs.promises.unlink(
-          provisionalStatePath(
-            provisional.temporaryPath
+        await fs.promises
+          .unlink(
+            provisionalStatePath(
+              provisional.temporaryPath
+            )
           )
-        ).catch(() => undefined);
+          .catch(() => undefined);
 
         return res.status(201).json({
           success: true,
@@ -1441,24 +1516,29 @@ export function createDocumentsUploadRouter(
           },
         });
       } catch (error) {
-        await client.query("ROLLBACK");
+        await client
+          .query("ROLLBACK")
+          .catch(() => undefined);
 
         if (
           targetPath &&
           fs.existsSync(targetPath)
         ) {
-          await fs.promises.rename(
-            targetPath,
-            provisional.temporaryPath
-          ).catch((restoreError) => {
-            console.error(
-              "Unable to restore provisional upload after confirmation failure:",
-              restoreError
-            );
-          });
+          await fs.promises
+            .rename(
+              targetPath,
+              provisional.temporaryPath
+            )
+            .catch((restoreError) => {
+              console.error(
+                "Unable to restore provisional upload after confirmation failure:",
+                restoreError
+              );
+            });
 
           targetPath = null;
         }
+
         console.error(
           "Document confirmation failed:",
           error
@@ -1504,7 +1584,8 @@ export function createDocumentsUploadRouter(
 
       if (
         !ownerUser ||
-        typeof organizationId !== "number"
+        typeof organizationId !==
+          "number"
       ) {
         return res.status(403).json({
           success: false,
@@ -1561,14 +1642,19 @@ export function createDocumentsUploadRouter(
               await readProvisionalUpload(
                 path.join(
                   directory,
-                  entry.replace(/\.json$/, "")
+                  entry.replace(
+                    /\.json$/,
+                    ""
+                  )
                 )
               );
 
             if (
               candidate.token === token &&
-              candidate.organizationId === organizationId &&
-              candidate.ownerUserId === ownerUser.id
+              candidate.organizationId ===
+                organizationId &&
+              candidate.ownerUserId ===
+                ownerUser.id
             ) {
               provisional = candidate;
               break;
@@ -1602,7 +1688,6 @@ export function createDocumentsUploadRouter(
       });
     }
   );
+
   return router;
 }
-
-

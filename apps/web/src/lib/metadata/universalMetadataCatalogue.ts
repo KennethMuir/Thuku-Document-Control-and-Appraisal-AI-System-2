@@ -9,7 +9,7 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "core",
     label: "Core",
-    description: "Fundamental identity and descriptive information for every record.",
+    description: "Core identification and descriptive metadata.",
     fieldKeys: [
       "reference_code",
       "title",
@@ -17,12 +17,13 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
       "record_number",
       "file_number",
       "section",
+      "document_type",
     ],
   },
   {
     key: "persons",
     label: "Persons",
-    description: "People associated with the creation, receipt, approval, ownership, or processing of a record.",
+    description: "People associated with the record.",
     fieldKeys: [
       "person_id",
       "person_name",
@@ -37,7 +38,7 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "organizations",
     label: "Organizations",
-    description: "Organizations, departments, business units, and organizational identifiers.",
+    description: "Organizations, departments and organizational identifiers.",
     fieldKeys: [
       "organization_name",
       "organization_code",
@@ -48,7 +49,7 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "dates_lifecycle",
     label: "Dates & Lifecycle",
-    description: "Dates and values describing the lifecycle and version history of a record.",
+    description: "Dates, lifecycle events and version information.",
     fieldKeys: [
       "document_date",
       "year",
@@ -67,7 +68,7 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "records_management",
     label: "Records Management",
-    description: "Records-management classification, retention, disposal, and lifecycle controls.",
+    description: "Records control, classification, retention and disposition.",
     fieldKeys: [
       "record_number",
       "record_series",
@@ -82,7 +83,7 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "content_subject",
     label: "Content & Subject",
-    description: "Subject matter, keywords, business functions, processes, and content context.",
+    description: "Subject, business context and content-related metadata.",
     fieldKeys: [
       "subject",
       "keywords",
@@ -96,7 +97,7 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "legal_regulatory",
     label: "Legal / Regulatory",
-    description: "Legal references, regulatory context, and compliance information.",
+    description: "Legal references, regulatory references and compliance.",
     fieldKeys: [
       "legal_reference",
       "regulatory_reference",
@@ -106,17 +107,18 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "security",
     label: "Security",
-    description: "Security classification, access controls, restrictions, and legal holds.",
+    description: "Security classification, access and risk information.",
     fieldKeys: [
       "security_classification",
       "access_restriction",
       "legal_hold",
+      "risk_level",
     ],
   },
   {
     key: "financial",
     label: "Financial",
-    description: "Financial amounts, currencies, cost centres, budgets, and accounting references.",
+    description: "Financial amounts, currencies and accounting references.",
     fieldKeys: [
       "amount",
       "currency",
@@ -128,7 +130,7 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "procurement_contracts",
     label: "Procurement / Contracts",
-    description: "Suppliers, purchasing records, purchase orders, and contracts.",
+    description: "Suppliers, purchasing and contract information.",
     fieldKeys: [
       "supplier_name",
       "purchase_order_number",
@@ -141,7 +143,7 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "human_resources",
     label: "Human Resources",
-    description: "Employee and employment-related metadata.",
+    description: "Employee and employment metadata.",
     fieldKeys: [
       "employee_number",
       "job_title",
@@ -152,7 +154,7 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "projects",
     label: "Projects",
-    description: "Project identifiers, names, milestones, and project-management information.",
+    description: "Project and milestone information.",
     fieldKeys: [
       "project_name",
       "project_code",
@@ -162,7 +164,7 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "engineering",
     label: "Engineering",
-    description: "Engineering assets, equipment, serialisation, and manufacturer information.",
+    description: "Engineering assets and equipment metadata.",
     fieldKeys: [
       "asset_id",
       "equipment_type",
@@ -173,7 +175,7 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "aviation",
     label: "Aviation",
-    description: "Aviation-specific aircraft, flight, and airport information.",
+    description: "Aircraft, flight and airport metadata.",
     fieldKeys: [
       "aircraft_registration",
       "aircraft_type",
@@ -184,7 +186,7 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "healthcare",
     label: "Healthcare",
-    description: "Healthcare and patient-related identifiers and case information.",
+    description: "Healthcare and case identifiers.",
     fieldKeys: [
       "patient_identifier",
       "case_number",
@@ -193,7 +195,7 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "research_scientific",
     label: "Research / Scientific",
-    description: "Scientific studies, research identifiers, and researchers.",
+    description: "Scientific research and study metadata.",
     fieldKeys: [
       "study_id",
       "researcher",
@@ -202,7 +204,7 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "education",
     label: "Education",
-    description: "Educational course and student identifiers.",
+    description: "Education and student metadata.",
     fieldKeys: [
       "course_code",
       "student_identifier",
@@ -211,18 +213,21 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "geographic",
     label: "Geographic",
-    description: "Locations, countries, cities, and facilities associated with records.",
+    description: "Location and environmental measurement metadata.",
     fieldKeys: [
       "location",
       "country",
       "city",
       "facility",
+      "environmental_location",
+      "measurement_type",
+      "measurement_value",
     ],
   },
   {
     key: "technical",
     label: "Technical",
-    description: "Digital-file, technical, system, language, and integrity information.",
+    description: "Digital file and technical metadata.",
     fieldKeys: [
       "file_name",
       "file_format",
@@ -236,7 +241,7 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "media_audiovisual",
     label: "Media / Audiovisual",
-    description: "Metadata describing audio, video, photographic, and other audiovisual content.",
+    description: "Audiovisual and media metadata.",
     fieldKeys: [
       "media_type",
       "duration",
@@ -246,7 +251,7 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "archival",
     label: "Archival",
-    description: "Archival arrangement, reference, and descriptive information.",
+    description: "Archival description and reference metadata.",
     fieldKeys: [
       "archival_level",
       "archive_reference",
@@ -255,7 +260,7 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "preservation",
     label: "Preservation",
-    description: "Digital and physical preservation status and preservation actions.",
+    description: "Digital and physical preservation metadata.",
     fieldKeys: [
       "preservation_status",
       "preservation_action",
@@ -264,7 +269,7 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "workflow_approval",
     label: "Workflow / Approval",
-    description: "Workflow state, approval information, and processing status.",
+    description: "Workflow state and approval metadata.",
     fieldKeys: [
       "workflow_status",
       "approval_date",
@@ -273,7 +278,7 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   {
     key: "relationships",
     label: "Relationships",
-    description: "Relationships between records and record versions.",
+    description: "Relationships between records.",
     fieldKeys: [
       "parent_record",
       "related_record",
@@ -282,70 +287,75 @@ export const UNIVERSAL_METADATA_CATALOGUE: UniversalMetadataCatalogueGroup[] = [
   },
 ];
 
-const GROUP_BY_KEY = new Map<string, UniversalMetadataCatalogueGroup>();
+const FIELD_TO_GROUP = new Map<string, string>();
 
 for (const group of UNIVERSAL_METADATA_CATALOGUE) {
   for (const fieldKey of group.fieldKeys) {
-    GROUP_BY_KEY.set(fieldKey, group);
+    if (!FIELD_TO_GROUP.has(fieldKey)) {
+      FIELD_TO_GROUP.set(fieldKey, group.key);
+    }
   }
 }
 
-const CATEGORY_GROUP_MAP: Record<string, string> = {
-  Identity: "core",
-  Dates: "dates_lifecycle",
-  People: "persons",
-  Organizations: "organizations",
-  "Records Management": "records_management",
-  Administrative: "core",
-  Governance: "content_subject",
-  "Subject / Classification": "content_subject",
-  "Legal / Regulatory": "legal_regulatory",
-  Security: "security",
-  Compliance: "legal_regulatory",
-  Risk: "security",
-  Audit: "records_management",
-  Financial: "financial",
-  Procurement: "procurement_contracts",
-  Contracts: "procurement_contracts",
-  "Human Resources": "human_resources",
-  Projects: "projects",
-  Operations: "core",
-  Engineering: "engineering",
-  Aviation: "aviation",
-  "Medical / Healthcare": "healthcare",
-  "Research / Scientific": "research_scientific",
-  Education: "education",
-  Geographic: "geographic",
-  Technical: "technical",
-  "Media / Audiovisual": "media_audiovisual",
-  Archival: "archival",
-  Preservation: "preservation",
-  "Workflow / Approval": "workflow_approval",
-  Relationships: "relationships",
-  Environmental: "geographic",
-};
-
 export function getUniversalMetadataGroup(
   fieldKey: string,
-  category?: string,
-): UniversalMetadataCatalogueGroup {
-  const explicit = GROUP_BY_KEY.get(fieldKey);
+  category?: string | null
+): string {
+  const directGroup = FIELD_TO_GROUP.get(fieldKey);
 
-  if (explicit) {
-    return explicit;
+  if (directGroup) {
+    return directGroup;
   }
 
-  const mappedKey = category
-    ? CATEGORY_GROUP_MAP[category]
-    : undefined;
+  const categoryMap: Record<string, string> = {
+    Identity: "core",
+    Dates: "dates_lifecycle",
+    People: "persons",
+    Organizations: "organizations",
+    "Records Management": "records_management",
+    Administrative: "core",
+    Governance: "content_subject",
+    "Subject / Classification": "content_subject",
+    "Legal / Regulatory": "legal_regulatory",
+    Security: "security",
+    Compliance: "legal_regulatory",
+    Risk: "security",
+    Audit: "records_management",
+    Financial: "financial",
+    Procurement: "procurement_contracts",
+    Contracts: "procurement_contracts",
+    "Human Resources": "human_resources",
+    Projects: "projects",
+    Operations: "core",
+    Engineering: "engineering",
+    Aviation: "aviation",
+    "Medical / Healthcare": "healthcare",
+    "Research / Scientific": "research_scientific",
+    Education: "education",
+    Geographic: "geographic",
+    Technical: "technical",
+    "Media / Audiovisual": "media_audiovisual",
+    Archival: "archival",
+    Preservation: "preservation",
+    "Workflow / Approval": "workflow_approval",
+    Relationships: "relationships",
+    Environmental: "geographic",
+  };
 
-  if (mappedKey) {
-    return (
-      UNIVERSAL_METADATA_CATALOGUE.find(
-        (group) => group.key === mappedKey,
-      ) ?? UNIVERSAL_METADATA_CATALOGUE[0]
-    );
-  }
+  return categoryMap[category ?? ""] ?? "core";
+}
 
-  return UNIVERSAL_METADATA_CATALOGUE[0];
+export function resolveUniversalMetadataGroup(
+  fieldKey: string,
+  category?: string | null
+): string {
+  return getUniversalMetadataGroup(fieldKey, category);
+}
+
+export function getUniversalMetadataCatalogueFieldCount(): number {
+  return new Set(
+    UNIVERSAL_METADATA_CATALOGUE.flatMap(
+      (group) => group.fieldKeys
+    )
+  ).size;
 }

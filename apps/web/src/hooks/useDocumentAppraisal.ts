@@ -13,6 +13,11 @@ import {
   confirmDocumentUpload,
   uploadDocument,
 } from "@/lib/api/documents";
+import {
+  getUniversalMetadataDraft,
+  resetUniversalMetadataDraft,
+} from "@/lib/metadata/universalMetadataDraft";
+import { persistUniversalMetadataValues } from "@/lib/metadata/universalMetadataValues";
 
 import type { DomainRelationshipSelection } from "@/components/metadata/DomainRelationshipSelector";
 
@@ -722,6 +727,13 @@ export function useDocumentAppraisal({
             persistedMetadataId,
             appraisalDomainRelationships
           );
+
+          await persistUniversalMetadataValues(
+            persistedMetadataId,
+            getUniversalMetadataDraft("appraisal")
+          );
+
+          resetUniversalMetadataDraft("appraisal");
         }
 
         setUploadToken(null);

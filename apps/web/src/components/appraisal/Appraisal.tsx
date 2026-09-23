@@ -25,6 +25,7 @@ import type {
 } from "@/components/metadata/DomainRelationshipSelector";
 
 import { DomainRelationshipSelector } from "@/components/metadata/DomainRelationshipSelector";
+import { UniversalMetadataFieldEditor } from "@/components/metadata/UniversalMetadataFieldEditor";
 
 type AppraisalMetadataForm = {
   referenceCode: string;
@@ -665,6 +666,15 @@ export function Appraisal({
                 ) : null}
               </div>
             )}
+
+            <div className="mt-5">
+              <UniversalMetadataFieldEditor
+                scope="appraisal"
+                disabled={appraisalFormDisabled}
+                title="Universal Metadata Values"
+                description="Select additional universal metadata fields discovered during appraisal and review their values before linking or creating the metadata record."
+              />
+            </div>
 
             <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex items-start justify-between gap-4">

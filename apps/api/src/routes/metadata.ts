@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import type { PoolClient } from "pg";
 import type { Pool } from "pg";
 
 import {
@@ -15,6 +16,7 @@ import {
 import {
   sanitizeAdditionalMetadata,
 } from "../services/metadataUtils.js";
+import { generateMetadataReferenceCode } from "../services/metadataReferenceCode.js";
 
 export function createMetadataRouter(pool: Pool) {
   const router = Router();
@@ -277,6 +279,76 @@ router.get(
     }
   }
 );
+
+router.get(
+  "/next-reference/:departmentId",
+  requireAuthentication(pool),
+  requireOrganizationContext(pool),
+  requireRole("ADMIN", "APPRAISER"),
+  async (req, res) => {
+    const organizationId = getOrganizationId(req, res);
+
+    if (organizationId === null) {
+      return;
+    }
+
+    const departmentId = Number(
+      req.params.departmentId
+    );
+
+    if (
+      !Number.isInteger(departmentId) ||
+      departmentId <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "A valid department is required.",
+      });
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const referenceCode =
+        await generateMetadataReferenceCode(
+          client,
+          organizationId,
+          departmentId
+        );
+
+      await client.query("ROLLBACK");
+
+      return res.json({
+        success: true,
+        referenceCode,
+      });
+    } catch (error: any) {
+      await client
+        .query("ROLLBACK")
+        .catch(() => undefined);
+
+      console.error(
+        "Metadata reference preview failed:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          "Unable to determine the next metadata reference code.",
+        details:
+          process.env.NODE_ENV === "development"
+            ? error.message
+            : undefined,
+      });
+    } finally {
+      client.release();
+    }
+  }
+);
+
 router.post(
   "/",
   requireAuthentication(pool),
@@ -287,12 +359,12 @@ router.post(
     res: Response
   ) => {
     const organizationId = getOrganizationId(req, res);
+
     if (organizationId === null) {
       return;
     }
 
     const {
-      referenceCode,
       title,
       personName,
       departmentId,
@@ -304,84 +376,60 @@ router.post(
       additionalMetadata,
     } = req.body;
 
-    if (
-      !referenceCode ||
-      !String(
-        referenceCode
-      ).trim()
-    ) {
+    const parsedDepartmentId =
+      nullablePositiveInteger(departmentId);
+
+    const parsedDocumentTypeId =
+      nullablePositiveInteger(documentTypeId);
+
+    if (parsedDepartmentId === null) {
       return res.status(400).json({
         success: false,
-        error:
-          "Reference code is required",
+        error: "Department is required to create metadata.",
       });
     }
 
+    const client: PoolClient =
+      await pool.connect();
+
     try {
-      const duplicate =
-        await pool.query(
-          `
-            SELECT id
-            FROM metadata_records
-            WHERE LOWER(reference_code) =
-                  LOWER($1)
-              AND organization_id = $2
-            LIMIT 1
-          `,
-          [
-            String(
-              referenceCode
-            ).trim(),
-            organizationId,
-          ]
+      await client.query("BEGIN");
+
+      const referenceCode =
+        await generateMetadataReferenceCode(
+          client,
+          organizationId,
+          parsedDepartmentId
         );
-
-      if (
-        duplicate.rowCount &&
-        duplicate.rowCount > 0
-      ) {
-        return res.status(409).json({
-          success: false,
-          error:
-            "A metadata record with this reference code already exists",
-        });
-      }
-
-      const parsedDepartmentId =
-        nullablePositiveInteger(departmentId);
-      const parsedDocumentTypeId =
-        nullablePositiveInteger(documentTypeId);
-
-      if (parsedDepartmentId !== null) {
-        const department = await pool.query(
-          `SELECT id FROM departments WHERE id = $1 AND organization_id = $2`,
-          [parsedDepartmentId, organizationId]
-        );
-
-        if (department.rowCount === 0) {
-          return res.status(400).json({
-            success: false,
-            error: "Department does not belong to your organization.",
-          });
-        }
-      }
 
       if (parsedDocumentTypeId !== null) {
-        const documentType = await pool.query(
-          `SELECT id FROM document_types WHERE id = $1 AND organization_id = $2`,
-          [parsedDocumentTypeId, organizationId]
-        );
+        const documentType =
+          await client.query(
+            `
+              SELECT id
+              FROM document_types
+              WHERE id = $1
+                AND organization_id = $2
+            `,
+            [
+              parsedDocumentTypeId,
+              organizationId,
+            ]
+          );
 
         if (documentType.rowCount === 0) {
+          await client.query("ROLLBACK");
+
           return res.status(400).json({
             success: false,
-            error: "Document type does not belong to your organization.",
+            error:
+              "Document type does not belong to your organization.",
           });
         }
       }
 
       const result =
-        await pool.query(
+        await client.query(
           `
             INSERT INTO metadata_records (
               reference_code,
@@ -428,49 +476,45 @@ router.post(
               updated_at
           `,
           [
-            String(
-              referenceCode
-            ).trim(),
+            referenceCode,
 
             nullableString(title),
 
-            nullableString(
-              personName
-            ),
+            nullableString(personName),
 
             parsedDepartmentId,
 
             parsedDocumentTypeId,
 
-            nullableString(
-              section
-            ),
+            nullableString(section),
 
             nullableInteger(year),
 
-            nullableString(
-              documentDate
-            ),
+            nullableString(documentDate),
 
-            nullableString(
-              description
-            ),
+            nullableString(description),
 
             JSON.stringify(
               sanitizeAdditionalMetadata(
                 additionalMetadata
               )
             ),
+
             organizationId,
           ]
         );
 
-      res.status(201).json({
+      await client.query("COMMIT");
+      client.release();
+
+      return res.status(201).json({
         success: true,
         metadata:
           result.rows[0],
       });
     } catch (error: any) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      client.release();
       console.error(
         "Metadata creation failed:",
         error
@@ -493,4 +537,3 @@ router.post(
 
   return router;
 }
-

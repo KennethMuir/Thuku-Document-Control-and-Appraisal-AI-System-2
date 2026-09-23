@@ -2,6 +2,7 @@
 
 import { Appraisal } from "@/components/appraisal/Appraisal";
 import { DomainRelationshipSelector } from "@/components/metadata/DomainRelationshipSelector";
+import { UniversalMetadataFieldEditor } from "@/components/metadata/UniversalMetadataFieldEditor";
 
 import type {
   DomainRelationshipDomain,
@@ -30,7 +31,6 @@ import type {
 } from "@/types/metadata";
 
 type FormState = {
-  referenceCode: string;
   personName: string;
   title: string;
   departmentId: string;
@@ -802,19 +802,6 @@ export function Modals({
               className="space-y-5 p-6"
             >
               <div className="grid gap-5 md:grid-cols-2">
-                <FormField
-                  id="metadata-reference-code"
-                  label="Reference Code *"
-                  value={form.referenceCode}
-                  onChange={(value) =>
-                    setForm({
-                      ...form,
-                      referenceCode: value,
-                    })
-                  }
-                  placeholder="HR-002"
-                  required
-                />
 
                 <FormField
                   id="metadata-person-name"
@@ -1015,6 +1002,12 @@ export function Modals({
                 }
                 title="Domain Relationships"
                 description="Associate this metadata record with one or more domains and define the relationship context."
+              />
+
+              <UniversalMetadataFieldEditor
+                scope="register"
+                title="Universal Metadata Catalogue"
+                description="Select and enter universal metadata fields for this metadata record."
               />
 
               {domainRelationshipsError ? (

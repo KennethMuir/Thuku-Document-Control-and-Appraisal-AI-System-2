@@ -1,9 +1,14 @@
+
 "use client";
 
 import {
   useEffect,
   useRef,
   useState,
+} from "react";
+
+import type {
+  FormEvent,
 } from "react";
 
 import { Modals } from "@/components/modals/Modals";
@@ -46,6 +51,19 @@ import {
 } from "@/lib/api/metadata";
 
 import {
+  getNextMetadataReferenceCode,
+} from "@/lib/api/metadataReference";
+
+import {
+  getUniversalMetadataDraft,
+  resetUniversalMetadataDraft,
+} from "@/lib/metadata/universalMetadataDraft";
+
+import {
+  persistUniversalMetadataValues,
+} from "@/lib/metadata/universalMetadataValues";
+
+import {
   formatFileSize,
   formatUploadFieldLabel,
   formatUploadFieldValue,
@@ -84,15 +102,10 @@ import {
 } from "@/hooks/useDomainRelationships";
 
 import type {
-  FormEvent,
-} from "react";
-
-import type {
   Statistics,
 } from "@/types/dashboard";
 
 import type {
-  Department,
   DocumentType,
 } from "@/types/departments";
 
@@ -149,7 +162,6 @@ const statCards = [
 ] as const;
 
 const EMPTY_FORM = {
-  referenceCode: "",
   personName: "",
   title: "",
   departmentId: "",
@@ -215,7 +227,6 @@ export default function Home() {
     setSelectedDepartmentId,
   ] = useState<number | null>(null);
 
-
   const [
     form,
     setForm,
@@ -240,9 +251,11 @@ export default function Home() {
     useRef(false);
 
   /*
+   *
    * =============================================================
    * AUTHENTICATION
    * =============================================================
+   *
    */
 
   const {
@@ -258,9 +271,11 @@ export default function Home() {
   } = useAuthSession();
 
   /*
+   *
    * =============================================================
    * DEPARTMENTS
    * =============================================================
+   *
    */
 
   const {
@@ -288,9 +303,11 @@ export default function Home() {
   });
 
   /*
+   *
    * =============================================================
    * USER MANAGEMENT
    * =============================================================
+   *
    */
 
   const {
@@ -305,9 +322,11 @@ export default function Home() {
   });
 
   /*
+   *
    * =============================================================
    * DOCUMENT SEARCH
    * =============================================================
+   *
    */
 
   const {
@@ -322,9 +341,11 @@ export default function Home() {
   });
 
   /*
+   *
    * =============================================================
    * REGISTRY FILTERS
    * =============================================================
+   *
    */
 
   const {
@@ -350,9 +371,11 @@ export default function Home() {
   });
 
   /*
+   *
    * =============================================================
    * DOMAIN RELATIONSHIPS
    * =============================================================
+   *
    */
 
   const {
@@ -374,9 +397,11 @@ export default function Home() {
   );
 
   /*
+   *
    * =============================================================
    * DATA LOADING
    * =============================================================
+   *
    */
 
   const loadData = async () => {
@@ -469,9 +494,11 @@ export default function Home() {
   };
 
   /*
+   *
    * =============================================================
    * DOCUMENT APPRAISAL
    * =============================================================
+   *
    */
 
   const {
@@ -536,9 +563,157 @@ export default function Home() {
   });
 
   /*
+   *
+   * =============================================================
+   * METADATA REFERENCE CODE PREVIEW
+   * =============================================================
+   *
+   * Existing matched metadata keeps its authoritative reference:
+   *
+   * KFX-033
+   * HR-001
+   * etc.
+   *
+   * When the reviewer rejects the suggested match and chooses
+   * to create new metadata, the existing reference is discarded
+   * from the appraisal form and a new department-based reference
+   * is previewed:
+   *
+   * Human Resources -> HR-1, HR-2, HR-3...
+   * Operations      -> OPS-1, OPS-2, OPS-3...
+   * Finance         -> FIN-1, FIN-2, FIN-3...
+   *
+   * This is only a preview. The backend generates the
+   * authoritative reference again when the metadata/document
+   * relationship is finally registered.
+   * =============================================================
+   *
+   */
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!uploadedAppraisal) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    /*
+     * Existing metadata is authoritative only while the appraisal
+     * is still using the suggested existing metadata record.
+     *
+     * Once Reject Match sets isCreatingNewMetadata=true,
+     * matchedMetadata must no longer control the reference code.
+     */
+
+    if (
+      !isCreatingNewMetadata &&
+      matchedMetadata &&
+      typeof matchedMetadata.reference_code ===
+        "string" &&
+      matchedMetadata.reference_code.trim()
+    ) {
+      const existingReferenceCode =
+        matchedMetadata.reference_code.trim();
+
+      setAppraisalMetadataForm(
+        (current) => ({
+          ...current,
+          referenceCode:
+            existingReferenceCode,
+        })
+      );
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const departmentId =
+      appraisalMetadataForm.departmentId.trim();
+
+    /*
+     * A new metadata reference cannot be generated until
+     * a department has been selected.
+     */
+
+    if (!departmentId) {
+      setAppraisalMetadataForm(
+        (current) => ({
+          ...current,
+          referenceCode: "",
+        })
+      );
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    /*
+     * Clear any previous/extracted/legacy reference immediately.
+     * This prevents KFX-033 or another old reference from
+     * remaining visible while the new department reference
+     * is being requested.
+     */
+
+    setAppraisalMetadataForm(
+      (current) => ({
+        ...current,
+        referenceCode: "",
+      })
+    );
+
+    void getNextMetadataReferenceCode(
+      departmentId
+    )
+      .then((referenceCode) => {
+        if (cancelled) {
+          return;
+        }
+
+        setAppraisalMetadataForm(
+          (current) => ({
+            ...current,
+            referenceCode,
+          })
+        );
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+
+        console.error(
+          "Unable to preview metadata reference code:",
+          error
+        );
+
+        setAppraisalMetadataForm(
+          (current) => ({
+            ...current,
+            referenceCode: "",
+          })
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    uploadedAppraisal,
+    matchedMetadata,
+    isCreatingNewMetadata,
+    appraisalMetadataForm.departmentId,
+  ]);
+
+  /*
+   *
    * =============================================================
    * BULK METADATA
    * =============================================================
+   *
    */
 
   const {
@@ -562,9 +737,11 @@ export default function Home() {
   });
 
   /*
+   *
    * =============================================================
    * INITIAL DATA EFFECT
    * =============================================================
+   *
    */
 
   useEffect(() => {
@@ -572,13 +749,25 @@ export default function Home() {
   }, []);
 
   /*
+   *
    * =============================================================
    * METADATA MODAL
    * =============================================================
+   *
    */
 
   const closeMetadataModal = () => {
     setShowMetadataModal(false);
+
+    /*
+     * M24D:
+     * Discard any unsaved Universal Metadata selections/values
+     * when the Register Metadata modal is closed.
+     */
+
+    resetUniversalMetadataDraft(
+      "register"
+    );
 
     clearMetadataDomainRelationships();
     clearAppraisalDomainRelationships();
@@ -587,9 +776,11 @@ export default function Home() {
   };
 
   /*
+   *
    * =============================================================
    * METADATA SUBMISSION
    * =============================================================
+   *
    */
 
   const handleMetadataSubmit = async (
@@ -604,11 +795,19 @@ export default function Home() {
     try {
       setDomainRelationshipsError("");
 
+      /*
+       * M24D:
+       * Capture the current Register Metadata Universal Metadata
+       * draft before the form is reset.
+       */
+
+      const universalMetadataDraft =
+        getUniversalMetadataDraft(
+          "register"
+        );
+
       const response =
         await createMetadata({
-          referenceCode:
-            form.referenceCode.trim(),
-
           personName:
             form.personName.trim() ||
             null,
@@ -669,15 +868,45 @@ export default function Home() {
         ) &&
         metadataRecordId > 0
       ) {
+        /*
+         * Existing M23 domain relationship persistence.
+         */
+
         await saveMetadataDomainRelationships(
           metadataRecordId,
           metadataDomainRelationships
         );
+
+        /*
+         * M24D Universal Metadata persistence.
+         *
+         * The helper safely does nothing when no universal
+         * fields were selected, so normal metadata registration
+         * continues to work exactly as before.
+         */
+
+        await persistUniversalMetadataValues(
+          metadataRecordId,
+          universalMetadataDraft
+        );
       }
+
+      /*
+       * Reset the ordinary Register Metadata form.
+       */
 
       setForm({
         ...EMPTY_FORM,
       });
+
+      /*
+       * Reset the M24D Universal Metadata draft only after
+       * successful metadata creation and persistence.
+       */
+
+      resetUniversalMetadataDraft(
+        "register"
+      );
 
       clearMetadataDomainRelationships();
       clearAppraisalDomainRelationships();
@@ -695,9 +924,11 @@ export default function Home() {
   };
 
   /*
+   *
    * =============================================================
    * DOCUMENT OPENING
    * =============================================================
+   *
    */
 
   const handleOpenDocument =
@@ -805,9 +1036,11 @@ export default function Home() {
     };
 
   /*
+   *
    * =============================================================
    * STATISTICS
    * =============================================================
+   *
    */
 
   const getStatValue = (
@@ -825,9 +1058,11 @@ export default function Home() {
   };
 
   /*
+   *
    * =============================================================
    * AUTH GATES
    * =============================================================
+   *
    */
 
   if (authLoading) {
@@ -873,9 +1108,11 @@ export default function Home() {
   }
 
   /*
+   *
    * =============================================================
    * MAIN APPLICATION
    * =============================================================
+   *
    */
 
   return (
@@ -1172,6 +1409,7 @@ export default function Home() {
         /*
          * M23 DOMAIN RELATIONSHIPS
          */
+
         domainRelationshipDomains={
           domainRelationshipDomains
         }
