@@ -2,6 +2,11 @@ import { Router, type Request, type Response } from "express";
 import type { Pool } from "pg";
 
 import {
+  getAvailableDomainByKey,
+  getAvailableDomainById,
+} from "../services/domainAvailability";
+
+import {
   requireAuthentication,
   requireOrganizationContext,
   requireRole,
@@ -10,22 +15,68 @@ import {
 
 const RELATIONSHIP_TYPES = [
   "SUBJECT",
-  "LEGAL_CONTEXT",
-  "BUSINESS_FUNCTION",
-  "TECHNICAL_CONTEXT",
-  "PURPOSE",
-  "REGULATORY_CONTEXT",
-  "OPERATIONAL_CONTEXT",
-  "FINANCIAL_CONTEXT",
-  "HISTORICAL_CONTEXT",
-  "OWNERSHIP_CONTEXT",
-  "PROCESS_CONTEXT",
-  "REPORTING_CONTEXT",
-  "RECORDS_CONTEXT",
-] as const;
-
-type RelationshipType =
-  (typeof RELATIONSHIP_TYPES)[number];
+  "RECORD",
+  "PROCESS",
+  "ACTIVITY",
+  "TASK",
+  "SERVICE",
+  "EVENT",
+  "REQUIREMENT",
+  "OBLIGATION",
+  "AUTHORITY",
+  "POLICY",
+  "DECISION",
+  "APPROVAL",
+  "AUTHORIZATION",
+  "AGREEMENT",
+  "PARTY",
+  "TRANSACTION",
+  "PAYMENT",
+  "REQUEST",
+  "SUBMISSION",
+  "NOTICE",
+  "AMENDMENT",
+  "RENEWAL",
+  "TERMINATION",
+  "DISPUTE",
+  "ASSESSMENT",
+  "REVIEW",
+  "INSPECTION",
+  "AUDIT",
+  "EVIDENCE",
+  "FINDING",
+  "RECOMMENDATION",
+  "RISK",
+  "CONTROL",
+  "INCIDENT",
+  "ISSUE",
+  "INVESTIGATION",
+  "CHANGE",
+  "EXCEPTION",
+  "DEPENDENCY",
+  "FOLLOW_UP",
+  "REPORT",
+  "DATA",
+  "ANALYSIS",
+  "RESULT",
+  "ASSET",
+  "RESOURCE",
+  "COST",
+  "FUNDING",
+  "BUDGET",
+  "ACCOUNT",
+  "LICENSE",
+  "PERMIT",
+  "CERTIFICATION",
+  "COMPLIANCE",
+  "CLASSIFICATION",
+  "RETENTION",
+  "ACCESS",
+  "TRANSFER",
+  "CUSTODY",
+  "PRESERVATION",
+  "DISPOSITION",
+];
 
 export function createDomainRelationshipsRouter(
   pool: Pool
@@ -248,51 +299,21 @@ export function createDomainRelationshipsRouter(
       }
 
       try {
-        const domainResult =
-          await pool.query(
-            `
-              SELECT
-                id,
-                domain_key,
-                display_name,
-                description,
-                domain_family,
-                aliases,
-                organization_id,
-                is_active,
-                created_at,
-                updated_at
-              FROM domain_registry
-              WHERE
-                domain_key = $1
-                AND (
-                  organization_id = $2
-                  OR organization_id IS NULL
-                )
-              ORDER BY
-                CASE
-                  WHEN organization_id IS NULL
-                    THEN 0
-                  ELSE 1
-                END
-              LIMIT 1
-            `,
-            [
-              domainKey,
-              organizationId,
-            ]
+        const domain =
+          await getAvailableDomainByKey(
+            pool,
+            organizationId,
+            domainKey
           );
 
-        if (domainResult.rows.length === 0) {
+        if (domain === null) {
           res.status(404).json({
             success: false,
-            error: "Domain not found.",
+            error:
+              "Domain not found or is not available to your organization.",
           });
           return;
         }
-
-        const domain =
-          domainResult.rows[0];
 
         const result =
           await pool.query(
@@ -488,34 +509,14 @@ export function createDomainRelationshipsRouter(
           return;
         }
 
-        const domainCheck =
-          await pool.query(
-            `
-              SELECT
-                id,
-                domain_key,
-                display_name,
-                domain_family,
-                organization_id,
-                is_active
-              FROM domain_registry
-              WHERE
-                id = $1
-                AND (
-                  organization_id = $2
-                  OR organization_id IS NULL
-                )
-              LIMIT 1
-            `,
-            [
-              domainId,
-              organizationId,
-            ]
+        const domain =
+          await getAvailableDomainById(
+            pool,
+            organizationId,
+            domainId
           );
 
-        if (
-          domainCheck.rows.length === 0
-        ) {
+        if (domain === null) {
           res.status(404).json({
             success: false,
             error:
@@ -523,9 +524,6 @@ export function createDomainRelationshipsRouter(
           });
           return;
         }
-
-        const domain =
-          domainCheck.rows[0];
 
         if (!domain.is_active) {
           res.status(400).json({
@@ -991,3 +989,4 @@ export function createDomainRelationshipsRouter(
 
   return router;
 }
+

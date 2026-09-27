@@ -93,6 +93,11 @@ export function UniversalMetadataFieldEditor({
     setSearch,
   ] = useState("");
 
+  const [
+    isOpen,
+    setIsOpen,
+  ] = useState(false);
+
   useEffect(() => {
     resetUniversalMetadataDraft(scope);
   }, [scope]);
@@ -383,23 +388,47 @@ export function UniversalMetadataFieldEditor({
   };
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-      <div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h3 className="text-sm font-bold text-slate-900">
-              {title}
-            </h3>
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+      <button
+        type="button"
+        onClick={() =>
+          setIsOpen((current) => !current)
+        }
+        disabled={disabled}
+        aria-expanded={isOpen}
+        className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <span className="min-w-0">
+          <span className="block text-sm font-bold text-slate-900">
+            {title}
+          </span>
 
-            <p className="mt-1 text-xs leading-5 text-slate-500">
+          <span className="mt-0.5 block text-xs text-slate-500">
+            {draft.selectedFieldIds.length} field
+            {draft.selectedFieldIds.length === 1
+              ? ""
+              : "s"} selected
+          </span>
+        </span>
+
+        <span
+          aria-hidden="true"
+          className={`shrink-0 text-xs text-slate-500 transition-transform ${
+            isOpen
+              ? "rotate-180"
+              : ""
+          }`}
+        >
+          ▼
+        </span>
+      </button>
+
+      {isOpen ? (
+        <div className="border-t border-slate-200 p-5">
+          <div>
+            <p className="mb-4 text-xs leading-5 text-slate-500">
               {description}
             </p>
-          </div>
-
-          <div className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm">
-            {draft.selectedFieldIds.length} selected
-          </div>
-        </div>
 
         <div className="mt-4">
           <input
@@ -415,7 +444,6 @@ export function UniversalMetadataFieldEditor({
             className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
           />
         </div>
-      </div>
 
       {loading && (
         <p className="mt-4 text-sm text-slate-500">
@@ -736,8 +764,13 @@ export function UniversalMetadataFieldEditor({
             )}
           </>
         )}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
 
 export default UniversalMetadataFieldEditor;
+
+

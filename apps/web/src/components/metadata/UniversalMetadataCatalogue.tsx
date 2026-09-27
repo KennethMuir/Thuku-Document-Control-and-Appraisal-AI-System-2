@@ -194,6 +194,8 @@ export function UniversalMetadataCatalogue({
     () => new Set(UNIVERSAL_METADATA_CATALOGUE.map((group) => group.key)),
   );
 
+  const [isOpen, setIsOpen] = useState(false);
+
   const [searchTerm, setSearchTerm] = useState("");
 
   const fieldByKey = useMemo(() => {
@@ -278,7 +280,36 @@ export function UniversalMetadataCatalogue({
 
   return (
     <section className="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-200 px-5 py-5">
+      <button
+        type="button"
+        onClick={() => setIsOpen((current) => !current)}
+        aria-expanded={isOpen}
+        className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition hover:bg-slate-50"
+      >
+        <span className="min-w-0">
+          <span className="block text-base font-semibold text-slate-900">
+            Universal Metadata Catalogue
+          </span>
+
+          <span className="mt-1 block text-sm text-slate-500">
+            {UNIVERSAL_METADATA_CATALOGUE.length} groups ·{" "}
+            {totalCatalogueFields} unique fields
+          </span>
+        </span>
+
+        <span
+          aria-hidden="true"
+          className={`shrink-0 text-slate-500 transition-transform ${
+            isOpen ? "rotate-180" : ""
+          }`}
+        >
+          ▼
+        </span>
+      </button>
+
+      {isOpen ? (
+        <>
+          <div className="border-t border-slate-200 px-5 py-5">
         <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
@@ -486,6 +517,9 @@ export function UniversalMetadataCatalogue({
           architecture.
         </p>
       </div>
+        </>
+      ) : null}
     </section>
   );
 }
+

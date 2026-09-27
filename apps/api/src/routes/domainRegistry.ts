@@ -2,6 +2,11 @@ import { Router, type Request, type Response } from "express";
 import type { Pool } from "pg";
 
 import {
+  getAvailableDomainByKey,
+  getAvailableDomains,
+} from "../services/domainAvailability";
+
+import {
   requireAuthentication,
   requireOrganizationContext,
   requireRole,
@@ -78,40 +83,14 @@ export function createDomainRegistryRouter(pool: Pool) {
       }
 
       try {
-        const result = await pool.query(
-          `
-            SELECT
-              id,
-              domain_key,
-              display_name,
-              description,
-              domain_family,
-              aliases,
-              is_active,
-              created_at,
-              updated_at,
-              organization_id
-            FROM domain_registry
-            WHERE
-              (
-                organization_id = $1
-                OR organization_id IS NULL
-              )
-              AND is_active = TRUE
-            ORDER BY
-              CASE
-                WHEN organization_id IS NULL THEN 0
-                ELSE 1
-              END,
-              domain_family,
-              display_name
-          `,
-          [organizationId]
+        const domains = await getAvailableDomains(
+          pool,
+          organizationId
         );
 
         res.json({
           success: true,
-          domain_registry: result.rows,
+          domain_registry: domains,
         });
       } catch (error) {
         console.error("Domain registry query failed:", error);
@@ -142,38 +121,13 @@ export function createDomainRegistryRouter(pool: Pool) {
       const domainKey = req.params.domain_key;
 
       try {
-        const result = await pool.query(
-          `
-            SELECT
-              id,
-              domain_key,
-              display_name,
-              description,
-              domain_family,
-              aliases,
-              is_active,
-              created_at,
-              updated_at,
-              organization_id
-            FROM domain_registry
-            WHERE
-              domain_key = $1
-              AND (
-                organization_id = $2
-                OR organization_id IS NULL
-              )
-              AND is_active = TRUE
-            ORDER BY
-              CASE
-                WHEN organization_id IS NULL THEN 0
-                ELSE 1
-              END
-            LIMIT 1
-          `,
-          [domainKey, organizationId]
+        const domain = await getAvailableDomainByKey(
+          pool,
+          organizationId,
+          domainKey
         );
 
-        if (result.rows.length === 0) {
+        if (domain === null) {
           res.status(404).json({
             success: false,
             error: "Domain definition not found.",
@@ -183,7 +137,7 @@ export function createDomainRegistryRouter(pool: Pool) {
 
         res.json({
           success: true,
-          domain_definition: result.rows[0],
+          domain_definition: domain,
         });
       } catch (error) {
         console.error("Domain definition query failed:", error);
@@ -308,7 +262,9 @@ export function createDomainRegistryRouter(pool: Pool) {
               description,
               domain_family,
               aliases,
+              domain_scope,
               organization_id,
+              specialization_id,
               is_active,
               created_at,
               updated_at
@@ -319,7 +275,9 @@ export function createDomainRegistryRouter(pool: Pool) {
               $3,
               $4,
               $5::jsonb,
+              'ORGANIZATION',
               $6,
+              NULL,
               TRUE,
               NOW(),
               NOW()
@@ -331,10 +289,12 @@ export function createDomainRegistryRouter(pool: Pool) {
               description,
               domain_family,
               aliases,
+              domain_scope,
+              organization_id,
+              specialization_id,
               is_active,
               created_at,
-              updated_at,
-              organization_id
+              updated_at
           `,
           [
             domain_key,
@@ -407,6 +367,8 @@ export function createDomainRegistryRouter(pool: Pool) {
             SELECT
               id,
               organization_id,
+              domain_scope,
+              specialization_id,
               is_active
             FROM domain_registry
             WHERE domain_key = $1
@@ -425,11 +387,11 @@ export function createDomainRegistryRouter(pool: Pool) {
 
         const dbDomain = domainCheck.rows[0];
 
-        if (dbDomain.organization_id === null) {
+        if (dbDomain.domain_scope !== "ORGANIZATION") {
           res.status(403).json({
             success: false,
             error:
-              "System domains cannot be modified via organization-defined operations.",
+              "System-controlled domains cannot be modified by an organization.",
           });
           return;
         }
@@ -499,10 +461,12 @@ export function createDomainRegistryRouter(pool: Pool) {
             description,
             domain_family,
             aliases,
+            domain_scope,
+            organization_id,
+            specialization_id,
             is_active,
             created_at,
-            updated_at,
-            organization_id
+            updated_at
         `;
 
         const result = await pool.query(query, values);
@@ -559,6 +523,7 @@ export function createDomainRegistryRouter(pool: Pool) {
             SELECT
               id,
               organization_id,
+              domain_scope,
               is_active
             FROM domain_registry
             WHERE domain_key = $1
@@ -582,10 +547,15 @@ export function createDomainRegistryRouter(pool: Pool) {
 
         const dbDomain = domainCheck.rows[0];
 
-        if (
-          dbDomain.organization_id !== null &&
-          dbDomain.organization_id !== organizationId
-        ) {
+        if (dbDomain.domain_scope !== "ORGANIZATION") {
+          res.status(403).json({
+            success: false,
+            error: "System-controlled domains cannot be enabled by an organization.",
+          });
+          return;
+        }
+
+        if (dbDomain.organization_id !== organizationId) {
           res.status(403).json({
             success: false,
             error:
@@ -602,18 +572,18 @@ export function createDomainRegistryRouter(pool: Pool) {
               updated_at = NOW()
             WHERE
               domain_key = $1
-              AND (
-                organization_id = $2
-                OR organization_id IS NULL
-              )
+              AND organization_id = $2
+              AND domain_scope = 'ORGANIZATION'
               AND is_active = FALSE
             RETURNING
               id,
               domain_key,
               display_name,
+              domain_scope,
+              organization_id,
+              specialization_id,
               is_active,
-              updated_at,
-              organization_id
+              updated_at
           `,
           [domainKey, organizationId]
         );
@@ -719,14 +689,17 @@ export function createDomainRegistryRouter(pool: Pool) {
             WHERE
               domain_key = $1
               AND organization_id = $2
+              AND domain_scope = 'ORGANIZATION'
               AND is_active = TRUE
             RETURNING
               id,
               domain_key,
               display_name,
+              domain_scope,
+              organization_id,
+              specialization_id,
               is_active,
-              updated_at,
-              organization_id
+              updated_at
           `,
           [domainKey, organizationId]
         );

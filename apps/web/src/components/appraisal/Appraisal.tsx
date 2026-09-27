@@ -651,24 +651,7 @@ export function Appraisal({
 
             {hasDomainRelationshipSupport && (
               <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-4">
-                  <DomainMultiSelect
-                    domains={appraisalDomainRelationshipDomains}
-                    selectedDomainIds={appraisalDomainClassifications}
-                    onChange={setAppraisalDomainClassifications}
-                    disabled={
-                      !canManageDocuments ||
-                      reviewingDecision ||
-                      appraisalDomainRelationshipsLoading
-                    }
-                    loading={appraisalDomainRelationshipsLoading}
-                    error={appraisalDomainRelationshipsError}
-                    title="Domain Registry"
-                    description="Select one or more domains for universal document classification."
-                  />
-                </div>
-
-                <DomainRelationshipSelector
+<DomainRelationshipSelector
                   domains={appraisalDomainRelationshipDomains}
                   relationshipTypes={appraisalDomainRelationshipTypes}
                   selected={appraisalDomainRelationships}
@@ -678,7 +661,7 @@ export function Appraisal({
                     reviewingDecision ||
                     appraisalDomainRelationshipsLoading
                   }
-                  title="Domain Relationships"
+                  title="Domain & Relationships"
                   description="Associate this appraisal with one or more domains and define the relationship context before linking or creating metadata."
                 />
 
@@ -1246,3 +1229,5 @@ export function Appraisal({
     </div>
   );
 }
+
+

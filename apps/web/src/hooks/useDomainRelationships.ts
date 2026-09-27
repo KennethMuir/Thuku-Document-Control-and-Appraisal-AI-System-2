@@ -251,14 +251,18 @@ export function useDomainRelationships(
 
           const rawTypes =
             Array.isArray(
-              relationshipTypesData.relationshipTypes
+              relationshipTypesData.relationship_types
             )
-              ? relationshipTypesData.relationshipTypes
+              ? relationshipTypesData.relationship_types
               : Array.isArray(
-                  relationshipTypesData.types
+                  relationshipTypesData.relationshipTypes
                 )
-                ? relationshipTypesData.types
-                : [];
+                ? relationshipTypesData.relationshipTypes
+                : Array.isArray(
+                    relationshipTypesData.types
+                  )
+                  ? relationshipTypesData.types
+                  : [];
 
           const normalizedTypes =
             rawTypes
@@ -704,6 +708,7 @@ export function useDomainRelationships(
     setDomainRelationshipsError,
   };
 }
+
 
 
 

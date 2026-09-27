@@ -1015,24 +1015,10 @@ export function Modals({
                   !canManageMetadata ||
                   domainRelationshipsLoading
                 }
-                title="Domain Relationships"
+                title="Domain & Relationships"
                 description="Associate this metadata record with one or more domains and define the relationship context."
               />
-
-              <DomainMultiSelect
-                domains={domainRelationshipDomains}
-                selectedDomainIds={metadataDomainClassifications}
-                onChange={setMetadataDomainClassifications}
-                disabled={
-                  !canManageMetadata ||
-                  domainRelationshipsLoading
-                }
-                loading={domainRelationshipsLoading}
-                error={domainRelationshipsError}
-                title="Domain Registry"
-                description="Select one or more domains for universal document classification."
-              />
-              <UniversalMetadataFieldEditor
+<UniversalMetadataFieldEditor
                 scope="register"
                 title="Universal Metadata Catalogue"
                 description="Select and enter universal metadata fields for this metadata record."
@@ -1610,4 +1596,6 @@ export function Modals({
     </>
   );
 }
+
+
 
