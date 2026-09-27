@@ -1,0 +1,748 @@
+// 06-useUserManagement
+//
+// EXACT SOURCE EXTRACTED FROM: src/app/page.tsx
+// This file is an extraction only. No source code was modified.
+
+// ============================================================
+// SOURCE BLOCK 1
+// ============================================================
+const canManageDocuments =
+    authUser?.role === "ADMIN" ||
+    authUser?.role === "APPRAISER";
+
+// ============================================================
+// SOURCE BLOCK 2
+// ============================================================
+const canManageMetadata =
+    authUser?.role === "ADMIN" ||
+    authUser?.role === "APPRAISER";
+
+// ============================================================
+// SOURCE BLOCK 3
+// ============================================================
+const canManageDepartments =
+    authUser?.role === "ADMIN";
+
+// ============================================================
+// SOURCE BLOCK 4
+// ============================================================
+const canManageDomains =
+    authUser?.role === "ADMIN" ||
+    authUser?.role === "OWNER";
+
+// ============================================================
+// SOURCE BLOCK 5
+// ============================================================
+const [
+    userManagementUsers,
+    setUserManagementUsers,
+  ] = useState<UserManagementUser[]>([]);
+
+// ============================================================
+// SOURCE BLOCK 6
+// ============================================================
+const [
+    userManagementLoading,
+    setUserManagementLoading,
+  ] = useState(false);
+
+// ============================================================
+// SOURCE BLOCK 7
+// ============================================================
+const [
+    userManagementError,
+    setUserManagementError,
+  ] = useState("");
+
+// ============================================================
+// SOURCE BLOCK 8
+// ============================================================
+const loadUserManagementUsers =
+    async () => {
+      if (
+        authUser?.role !==
+        "ADMIN"
+      ) {
+        return;
+      }
+
+      try {
+        setUserManagementLoading(
+          true
+        );
+
+        setUserManagementError("");
+
+        const response =
+          await getUsers();
+
+        const data =
+          await response.json();
+
+        if (
+          !response.ok ||
+          !data.success
+        ) {
+          throw new Error(
+            data.error ||
+              "Unable to retrieve users."
+          );
+        }
+
+        setUserManagementUsers(
+          Array.isArray(
+            data.users
+          )
+            ? data.users
+            : []
+        );
+      } catch (error) {
+        console.error(
+          "User management load failed:",
+          error
+        );
+
+        setUserManagementUsers(
+          []
+        );
+
+        setUserManagementError(
+          error instanceof Error
+            ? error.message
+            : "Unable to retrieve users."
+        );
+      } finally {
+        setUserManagementLoading(
+          false
+        );
+      }
+    };
+
+// ============================================================
+// SOURCE BLOCK 9
+// ============================================================
+const updateManagedUser =
+    async (
+      userId: number,
+      changes: {
+        role?:
+          | "ADMIN"
+          | "APPRAISER"
+          | "VIEWER";
+
+        isActive?: boolean;
+      }
+    ) => {
+      if (
+        authUser?.role !==
+        "ADMIN"
+      ) {
+        return;
+      }
+
+      try {
+        setUpdatingUserId(
+          userId
+        );
+
+        setUserManagementError("");
+
+        const response =
+          await updateUser(
+            userId,
+            changes
+          );
+
+        const data =
+          await response.json();
+
+        if (
+          !response.ok ||
+          !data.success
+        ) {
+          throw new Error(
+            data.error ||
+              "Unable to update user."
+          );
+        }
+
+        setUserManagementUsers(
+          (
+            currentUsers
+          ) =>
+            currentUsers.map(
+              (
+                user
+              ) =>
+                user.id ===
+                userId
+                  ? data.user
+                  : user
+            )
+        );
+      } catch (error) {
+        console.error(
+          "User update failed:",
+          error
+        );
+
+        setUserManagementError(
+          error instanceof Error
+            ? error.message
+            : "Unable to update user."
+        );
+      } finally {
+        setUpdatingUserId(
+          null
+        );
+      }
+    };
+
+// ============================================================
+// SOURCE BLOCK 10
+// ============================================================
+useEffect(() => {
+    if (
+      activePage ===
+        "Settings" &&
+      authUser?.role ===
+        "ADMIN"
+    ) {
+      void loadUserManagementUsers();
+    }
+  }, [
+    activePage,
+    authUser?.role,
+  ]);
+
+// ============================================================
+// SOURCE BLOCK 11
+// ============================================================
+return (
+    <main className="min-h-screen bg-[#f5f7fa] text-slate-900">
+      <div
+        ref={appContentRef}
+        className="flex min-h-screen"
+      >
+        <Sidebar
+          activePage={activePage}
+          setActivePage={setActivePage}
+          canManageDocuments={
+            canManageDocuments
+          }
+          setShowUploadModal={
+            setShowUploadModal
+          }
+          authUser={authUser}
+          logout={logout}
+          loggingOut={loggingOut}
+        />
+
+        <section className="flex-1">
+          <TopBar
+            activePage={activePage}
+            setActivePage={setActivePage}
+            canManageDocuments={
+              canManageDocuments
+            }
+            setShowUploadModal={
+              setShowUploadModal
+            }
+          />
+
+          <div className="px-6 py-8 lg:px-10">
+            {activePage ===
+              "Dashboard" && (
+              <Dashboard
+                statistics={statistics}
+                departments={
+                  departments
+                }
+                documents={
+                  documents
+                }
+                metadata={
+                  metadata
+                }
+                statCards={
+                  statCards
+                }
+                dashboardDocumentFilter={
+                  dashboardDocumentFilter
+                }
+                dashboardMetadataFilter={
+                  dashboardMetadataFilter
+                }
+                canManageMetadata={
+                  canManageMetadata
+                }
+                setDashboardDocumentFilter={
+                  setDashboardDocumentFilter
+                }
+                setDashboardMetadataFilter={
+                  setDashboardMetadataFilter
+                }
+                setShowMetadataModal={
+                  setShowMetadataModal
+                }
+                setActivePage={
+                  setActivePage
+                }
+                handleDashboardStatCardClick={
+                  handleDashboardStatCardClick
+                }
+                openDepartmentRecords={
+                  openDepartmentRecords
+                }
+                getStatValue={
+                  getStatValue
+                }
+              />
+            )}
+
+            {activePage ===
+              "Domain Registry" && (
+              <DomainRegistry
+                canManageDomains={
+                  canManageDomains
+                }
+              />
+            )}
+
+            {activePage ===
+              "Metadata Registry" && (
+              <MetadataRegistry
+                metadata={
+                  metadata
+                }
+                departments={
+                  departments
+                }
+                documents={
+                  documents
+                }
+                selectedDepartment={
+                  selectedDepartment
+                }
+                selectedDepartmentDocuments={
+                  selectedDepartmentDocuments
+                }
+                filteredMetadata={
+                  filteredMetadata
+                }
+                searchTerm={
+                  searchTerm
+                }
+                canManageMetadata={
+                  canManageMetadata
+                }
+                loading={
+                  loading
+                }
+                expandedAdditionalMetadata={
+                  expandedAdditionalMetadata
+                }
+                setExpandedAdditionalMetadata={
+                  setExpandedAdditionalMetadata
+                }
+                setSearchTerm={
+                  setSearchTerm
+                }
+                setSelectedDepartmentId={
+                  setSelectedDepartmentId
+                }
+                setShowMetadataModal={
+                  setShowMetadataModal
+                }
+                setShowBulkMetadataModal={
+                  setShowBulkMetadataModal
+                }
+                SummaryCard={
+                  SummaryCard
+                }
+                StatusBadge={
+                  StatusBadge
+                }
+              />
+            )}
+
+            {activePage ===
+              "Documents" && (
+              <Documents
+                documents={
+                  documents
+                }
+                dashboardFilteredDocuments={
+                  dashboardFilteredDocuments
+                }
+                metadata={
+                  metadata
+                }
+                dashboardDocumentFilter={
+                  dashboardDocumentFilter
+                }
+                canManageDocuments={
+                  canManageDocuments
+                }
+                loading={
+                  loading
+                }
+                setShowUploadModal={
+                  setShowUploadModal
+                }
+                setReviewError={
+                  setReviewError
+                }
+                handleOpenDocument={
+                  handleOpenDocument
+                }
+                formatFileSize={
+                  formatFileSize
+                }
+                StatusBadge={
+                  StatusBadge
+                }
+              />
+            )}
+
+            {activePage ===
+              "Search" && (
+              <Search
+                searchLoading={
+                  searchLoading
+                }
+                searchError={
+                  searchError
+                }
+                searchResults={
+                  searchResults
+                }
+                searchTerm={
+                  searchTerm
+                }
+                setSearchTerm={
+                  setSearchTerm
+                }
+                departments={
+                  departments
+                }
+                documents={
+                  documents
+                }
+                metadata={
+                  metadata
+                }
+                StatusBadge={
+                  StatusBadge
+                }
+                handleOpenDocument={
+                  handleOpenDocument
+                }
+              />
+            )}
+
+            {activePage ===
+              "Departments" && (
+              <Departments
+                departments={
+                  departments
+                }
+                canManageDepartments={
+                  canManageDepartments
+                }
+                departmentModalOpen={
+                  departmentModalOpen
+                }
+                departmentMutationError={
+                  departmentMutationError
+                }
+                openAddDepartmentModal={
+                  openAddDepartmentModal
+                }
+                openEditDepartmentModal={
+                  openEditDepartmentModal
+                }
+                openDepartmentRecords={
+                  openDepartmentRecords
+                }
+              />
+            )}
+
+            {activePage ===
+              "Settings" && (
+              <Settings
+                authUser={
+                  authUser
+                }
+                userManagementUsers={
+                  userManagementUsers
+                }
+                userManagementLoading={
+                  userManagementLoading
+                }
+                userManagementError={
+                  userManagementError
+                }
+                updatingUserId={
+                  updatingUserId
+                }
+                updateManagedUser={
+                  updateManagedUser
+                }
+              />
+            )}
+          </div>
+        </section>
+      </div>
+
+      <Modals
+        canManageDepartments={
+          canManageDepartments
+        }
+        canManageMetadata={
+          canManageMetadata
+        }
+        canManageDocuments={
+          canManageDocuments
+        }
+        isCreatingNewMetadata={
+          isCreatingNewMetadata
+        }
+
+        /*
+         * M23 DOMAIN RELATIONSHIPS
+         */
+        domainRelationshipDomains={
+          domainRelationshipDomains
+        }
+        domainRelationshipTypes={
+          domainRelationshipTypes
+        }
+        metadataDomainRelationships={
+          metadataDomainRelationships
+        }
+        appraisalDomainRelationships={
+          appraisalDomainRelationships
+        }
+        domainRelationshipsLoading={
+          domainRelationshipsLoading
+        }
+        domainRelationshipsError={
+          domainRelationshipsError
+        }
+        setMetadataDomainRelationships={
+          setMetadataDomainRelationships
+        }
+        setAppraisalDomainRelationships={
+          setAppraisalDomainRelationships
+        }
+
+        departmentModalOpen={
+          departmentModalOpen
+        }
+        departmentEditingId={
+          departmentEditingId
+        }
+        departmentForm={
+          departmentForm
+        }
+        departmentMutationError={
+          departmentMutationError
+        }
+        departmentSaving={
+          departmentSaving
+        }
+        departments={
+          departments
+        }
+
+        setDepartmentForm={
+          setDepartmentForm
+        }
+        setDepartmentModalOpen={
+          setDepartmentModalOpen
+        }
+        setDepartmentMutationError={
+          setDepartmentMutationError
+        }
+        setDepartmentSaving={
+          setDepartmentSaving
+        }
+
+        closeDepartmentModal={
+          closeDepartmentModal
+        }
+        saveDepartment={
+          saveDepartment
+        }
+        deleteDepartment={
+          deleteDepartment
+        }
+
+        showBulkMetadataModal={
+          showBulkMetadataModal
+        }
+        bulkMetadataFile={
+          bulkMetadataFile
+        }
+        bulkMetadataPreview={
+          bulkMetadataPreview
+        }
+        bulkMetadataError={
+          bulkMetadataError
+        }
+        bulkMetadataLoading={
+          bulkMetadataLoading
+        }
+        bulkMetadataImporting={
+          bulkMetadataImporting
+        }
+
+        setBulkMetadataFile={
+          setBulkMetadataFile
+        }
+        setBulkMetadataPreview={
+          setBulkMetadataPreview
+        }
+        setBulkMetadataError={
+          setBulkMetadataError
+        }
+
+        closeBulkMetadataModal={
+          closeBulkMetadataModal
+        }
+        handleBulkMetadataPreview={
+          handleBulkMetadataPreview
+        }
+        handleBulkMetadataImport={
+          handleBulkMetadataImport
+        }
+        downloadBulkMetadataTemplate={
+          downloadBulkMetadataTemplate
+        }
+
+        showMetadataModal={
+          showMetadataModal
+        }
+        form={
+          form
+        }
+        documentTypes={
+          documentTypes
+        }
+
+        setForm={
+          setForm
+        }
+        closeMetadataModal={
+          closeMetadataModal
+        }
+        handleMetadataSubmit={
+          handleMetadataSubmit
+        }
+
+        showUploadModal={
+          showUploadModal
+        }
+        selectedFile={
+          selectedFile
+        }
+        uploading={
+          uploading
+        }
+        uploadError={
+          uploadError
+        }
+        uploadedDocument={
+          uploadedDocument
+        }
+        uploadedAppraisal={
+          uploadedAppraisal
+        }
+
+        uploadFieldEntries={
+          uploadFieldEntries
+        }
+
+        appraisalMetadataForm={
+          appraisalMetadataForm
+        }
+        appraisalAdditionalMetadata={
+          appraisalAdditionalMetadata
+        }
+        appraisalCommittedAdditionalMetadata={
+          appraisalCommittedAdditionalMetadata
+        }
+        appraisalRequiredFieldsComplete={
+          appraisalRequiredFieldsComplete
+        }
+        appraisalDecisionLabel={
+          appraisalDecisionLabel
+        }
+        appraisalIsLinked={
+          appraisalIsLinked
+        }
+        matchedMetadata={
+          matchedMetadata
+        }
+        reviewingDecision={
+          reviewingDecision
+        }
+        reviewError={
+          reviewError
+        }
+
+        setAppraisalMetadataForm={
+          setAppraisalMetadataForm
+        }
+        setAppraisalAdditionalMetadata={
+          setAppraisalAdditionalMetadata
+        }
+        setAppraisalCommittedAdditionalMetadata={
+          setAppraisalCommittedAdditionalMetadata
+        }
+
+        handleFileChange={
+          handleFileChange
+        }
+        handleUpload={
+          handleUpload
+        }
+        handleAppraisalReview={
+          handleAppraisalReview
+        }
+        handleDoneAppraisal={
+          handleDoneAppraisal
+        }
+        handleCreateMetadataFromAppraisal={
+          handleCreateMetadataFromAppraisal
+        }
+        closeUploadModal={
+          closeUploadModal
+        }
+
+        modalRef={
+          modalRef
+        }
+        modalCloseButtonRef={
+          modalCloseButtonRef
+        }
+
+        StatusBadge={
+          StatusBadge
+        }
+        FormField={
+          FormField
+        }
+        formatFileSize={
+          formatFileSize
+        }
+        formatUploadFieldLabel={
+          formatUploadFieldLabel
+        }
+        formatUploadFieldValue={
+          formatUploadFieldValue
+        }
+      />
+    </main>
+  );

@@ -1,0 +1,817 @@
+// 04-useBulkMetadata
+//
+// EXACT SOURCE EXTRACTED FROM: src/app/page.tsx
+// This file is an extraction only. No source code was modified.
+
+// ============================================================
+// SOURCE BLOCK 1
+// ============================================================
+const [
+    showBulkMetadataModal,
+    setShowBulkMetadataModal,
+  ] = useState(false);
+
+// ============================================================
+// SOURCE BLOCK 2
+// ============================================================
+const [
+    bulkMetadataFile,
+    setBulkMetadataFile,
+  ] = useState<File | null>(null);
+
+// ============================================================
+// SOURCE BLOCK 3
+// ============================================================
+const [
+    bulkMetadataPreview,
+    setBulkMetadataPreview,
+  ] = useState<{
+    totalRows: number;
+    rows: Array<Record<string, unknown>>;
+    existingReferenceCodes: string[];
+    canImport: boolean;
+    truncated: boolean;
+  } | null>(null);
+
+// ============================================================
+// SOURCE BLOCK 4
+// ============================================================
+const [
+    bulkMetadataError,
+    setBulkMetadataError,
+  ] = useState("");
+
+// ============================================================
+// SOURCE BLOCK 5
+// ============================================================
+const [
+    bulkMetadataLoading,
+    setBulkMetadataLoading,
+  ] = useState(false);
+
+// ============================================================
+// SOURCE BLOCK 6
+// ============================================================
+const [
+    bulkMetadataImporting,
+    setBulkMetadataImporting,
+  ] = useState(false);
+
+// ============================================================
+// SOURCE BLOCK 7
+// ============================================================
+const closeBulkMetadataModal = () => {
+    if (
+      bulkMetadataLoading ||
+      bulkMetadataImporting
+    ) {
+      return;
+    }
+
+    setShowBulkMetadataModal(false);
+    setBulkMetadataFile(null);
+    setBulkMetadataPreview(null);
+    setBulkMetadataError("");
+  };
+
+// ============================================================
+// SOURCE BLOCK 8
+// ============================================================
+const downloadBulkMetadataTemplate =
+    () => {
+      const csv = [
+        "reference_code,person_name,title,department,document_type,year,document_date,section,description,contract_number,employee_number,expiry_date",
+        "DOC-EXAMPLE-001,Jane Doe,Example Document,Finance,Contract,2026,2026-01-15,Section A,Example metadata record,CNT-2026-001,EMP-00001,2028-06-30",
+      ].join("\r\n");
+
+      const blob = new Blob(
+        [csv],
+        {
+          type: "text/csv;charset=utf-8;",
+        }
+      );
+
+      const url =
+        URL.createObjectURL(
+          blob
+        );
+
+      const anchor =
+        document.createElement(
+          "a"
+        );
+
+      anchor.href = url;
+      anchor.download =
+        "metadata-upload-template.csv";
+
+      document.body.appendChild(
+        anchor
+      );
+
+      anchor.click();
+      anchor.remove();
+
+      URL.revokeObjectURL(
+        url
+      );
+    };
+
+// ============================================================
+// SOURCE BLOCK 9
+// ============================================================
+const handleBulkMetadataPreview =
+    async () => {
+      if (
+        !canManageMetadata ||
+        !bulkMetadataFile
+      ) {
+        return;
+      }
+
+      setBulkMetadataLoading(
+        true
+      );
+
+      setBulkMetadataError("");
+      setBulkMetadataPreview(
+        null
+      );
+
+      try {
+        const formData =
+          new FormData();
+
+        formData.append(
+          "file",
+          bulkMetadataFile
+        );
+
+        const response =
+          await previewBulkMetadata(
+            formData
+          );
+
+        const data =
+          await response.json();
+
+        if (
+          !response.ok ||
+          !data.success
+        ) {
+          throw new Error(
+            Array.isArray(
+              data.errors
+            )
+              ? data.errors.join(
+                  "\n"
+                )
+              : data.error ||
+                  "Unable to preview bulk metadata."
+          );
+        }
+
+        setBulkMetadataPreview(
+          {
+            totalRows: Number(
+              data.totalRows || 0
+            ),
+            rows: Array.isArray(
+              data.rows
+            )
+              ? data.rows
+              : [],
+            existingReferenceCodes:
+              Array.isArray(
+                data.existingReferenceCodes
+              )
+                ? data.existingReferenceCodes
+                : [],
+            canImport:
+              data.canImport !==
+              false,
+            truncated:
+              data.truncated ===
+              true,
+          }
+        );
+      } catch (error) {
+        setBulkMetadataError(
+          error instanceof Error
+            ? error.message
+            : "Unable to preview bulk metadata."
+        );
+      } finally {
+        setBulkMetadataLoading(
+          false
+        );
+      }
+    };
+
+// ============================================================
+// SOURCE BLOCK 10
+// ============================================================
+const handleBulkMetadataImport =
+    async () => {
+      if (
+        !canManageMetadata ||
+        !bulkMetadataFile ||
+        !bulkMetadataPreview?.canImport
+      ) {
+        return;
+      }
+
+      setBulkMetadataImporting(
+        true
+      );
+
+      setBulkMetadataError("");
+
+      try {
+        const formData =
+          new FormData();
+
+        formData.append(
+          "file",
+          bulkMetadataFile
+        );
+
+        const response =
+          await importBulkMetadata(
+            formData
+          );
+
+        const data =
+          await response.json();
+
+        if (
+          !response.ok ||
+          !data.success
+        ) {
+          throw new Error(
+            Array.isArray(
+              data.errors
+            )
+              ? data.errors.join(
+                  "\n"
+                )
+              : data.error ||
+                  "Unable to import metadata."
+          );
+        }
+
+        closeBulkMetadataModal();
+
+        await loadData();
+
+        window.alert(
+          `${Number(
+            data.importedCount ||
+              data.count ||
+              bulkMetadataPreview.totalRows
+          )} metadata records imported successfully.`
+        );
+      } catch (error) {
+        setBulkMetadataError(
+          error instanceof Error
+            ? error.message
+            : "Unable to import metadata."
+        );
+      } finally {
+        setBulkMetadataImporting(
+          false
+        );
+      }
+    };
+
+// ============================================================
+// SOURCE BLOCK 11
+// ============================================================
+return (
+    <main className="min-h-screen bg-[#f5f7fa] text-slate-900">
+      <div
+        ref={appContentRef}
+        className="flex min-h-screen"
+      >
+        <Sidebar
+          activePage={activePage}
+          setActivePage={setActivePage}
+          canManageDocuments={
+            canManageDocuments
+          }
+          setShowUploadModal={
+            setShowUploadModal
+          }
+          authUser={authUser}
+          logout={logout}
+          loggingOut={loggingOut}
+        />
+
+        <section className="flex-1">
+          <TopBar
+            activePage={activePage}
+            setActivePage={setActivePage}
+            canManageDocuments={
+              canManageDocuments
+            }
+            setShowUploadModal={
+              setShowUploadModal
+            }
+          />
+
+          <div className="px-6 py-8 lg:px-10">
+            {activePage ===
+              "Dashboard" && (
+              <Dashboard
+                statistics={statistics}
+                departments={
+                  departments
+                }
+                documents={
+                  documents
+                }
+                metadata={
+                  metadata
+                }
+                statCards={
+                  statCards
+                }
+                dashboardDocumentFilter={
+                  dashboardDocumentFilter
+                }
+                dashboardMetadataFilter={
+                  dashboardMetadataFilter
+                }
+                canManageMetadata={
+                  canManageMetadata
+                }
+                setDashboardDocumentFilter={
+                  setDashboardDocumentFilter
+                }
+                setDashboardMetadataFilter={
+                  setDashboardMetadataFilter
+                }
+                setShowMetadataModal={
+                  setShowMetadataModal
+                }
+                setActivePage={
+                  setActivePage
+                }
+                handleDashboardStatCardClick={
+                  handleDashboardStatCardClick
+                }
+                openDepartmentRecords={
+                  openDepartmentRecords
+                }
+                getStatValue={
+                  getStatValue
+                }
+              />
+            )}
+
+            {activePage ===
+              "Domain Registry" && (
+              <DomainRegistry
+                canManageDomains={
+                  canManageDomains
+                }
+              />
+            )}
+
+            {activePage ===
+              "Metadata Registry" && (
+              <MetadataRegistry
+                metadata={
+                  metadata
+                }
+                departments={
+                  departments
+                }
+                documents={
+                  documents
+                }
+                selectedDepartment={
+                  selectedDepartment
+                }
+                selectedDepartmentDocuments={
+                  selectedDepartmentDocuments
+                }
+                filteredMetadata={
+                  filteredMetadata
+                }
+                searchTerm={
+                  searchTerm
+                }
+                canManageMetadata={
+                  canManageMetadata
+                }
+                loading={
+                  loading
+                }
+                expandedAdditionalMetadata={
+                  expandedAdditionalMetadata
+                }
+                setExpandedAdditionalMetadata={
+                  setExpandedAdditionalMetadata
+                }
+                setSearchTerm={
+                  setSearchTerm
+                }
+                setSelectedDepartmentId={
+                  setSelectedDepartmentId
+                }
+                setShowMetadataModal={
+                  setShowMetadataModal
+                }
+                setShowBulkMetadataModal={
+                  setShowBulkMetadataModal
+                }
+                SummaryCard={
+                  SummaryCard
+                }
+                StatusBadge={
+                  StatusBadge
+                }
+              />
+            )}
+
+            {activePage ===
+              "Documents" && (
+              <Documents
+                documents={
+                  documents
+                }
+                dashboardFilteredDocuments={
+                  dashboardFilteredDocuments
+                }
+                metadata={
+                  metadata
+                }
+                dashboardDocumentFilter={
+                  dashboardDocumentFilter
+                }
+                canManageDocuments={
+                  canManageDocuments
+                }
+                loading={
+                  loading
+                }
+                setShowUploadModal={
+                  setShowUploadModal
+                }
+                setReviewError={
+                  setReviewError
+                }
+                handleOpenDocument={
+                  handleOpenDocument
+                }
+                formatFileSize={
+                  formatFileSize
+                }
+                StatusBadge={
+                  StatusBadge
+                }
+              />
+            )}
+
+            {activePage ===
+              "Search" && (
+              <Search
+                searchLoading={
+                  searchLoading
+                }
+                searchError={
+                  searchError
+                }
+                searchResults={
+                  searchResults
+                }
+                searchTerm={
+                  searchTerm
+                }
+                setSearchTerm={
+                  setSearchTerm
+                }
+                departments={
+                  departments
+                }
+                documents={
+                  documents
+                }
+                metadata={
+                  metadata
+                }
+                StatusBadge={
+                  StatusBadge
+                }
+                handleOpenDocument={
+                  handleOpenDocument
+                }
+              />
+            )}
+
+            {activePage ===
+              "Departments" && (
+              <Departments
+                departments={
+                  departments
+                }
+                canManageDepartments={
+                  canManageDepartments
+                }
+                departmentModalOpen={
+                  departmentModalOpen
+                }
+                departmentMutationError={
+                  departmentMutationError
+                }
+                openAddDepartmentModal={
+                  openAddDepartmentModal
+                }
+                openEditDepartmentModal={
+                  openEditDepartmentModal
+                }
+                openDepartmentRecords={
+                  openDepartmentRecords
+                }
+              />
+            )}
+
+            {activePage ===
+              "Settings" && (
+              <Settings
+                authUser={
+                  authUser
+                }
+                userManagementUsers={
+                  userManagementUsers
+                }
+                userManagementLoading={
+                  userManagementLoading
+                }
+                userManagementError={
+                  userManagementError
+                }
+                updatingUserId={
+                  updatingUserId
+                }
+                updateManagedUser={
+                  updateManagedUser
+                }
+              />
+            )}
+          </div>
+        </section>
+      </div>
+
+      <Modals
+        canManageDepartments={
+          canManageDepartments
+        }
+        canManageMetadata={
+          canManageMetadata
+        }
+        canManageDocuments={
+          canManageDocuments
+        }
+        isCreatingNewMetadata={
+          isCreatingNewMetadata
+        }
+
+        /*
+         * M23 DOMAIN RELATIONSHIPS
+         */
+        domainRelationshipDomains={
+          domainRelationshipDomains
+        }
+        domainRelationshipTypes={
+          domainRelationshipTypes
+        }
+        metadataDomainRelationships={
+          metadataDomainRelationships
+        }
+        appraisalDomainRelationships={
+          appraisalDomainRelationships
+        }
+        domainRelationshipsLoading={
+          domainRelationshipsLoading
+        }
+        domainRelationshipsError={
+          domainRelationshipsError
+        }
+        setMetadataDomainRelationships={
+          setMetadataDomainRelationships
+        }
+        setAppraisalDomainRelationships={
+          setAppraisalDomainRelationships
+        }
+
+        departmentModalOpen={
+          departmentModalOpen
+        }
+        departmentEditingId={
+          departmentEditingId
+        }
+        departmentForm={
+          departmentForm
+        }
+        departmentMutationError={
+          departmentMutationError
+        }
+        departmentSaving={
+          departmentSaving
+        }
+        departments={
+          departments
+        }
+
+        setDepartmentForm={
+          setDepartmentForm
+        }
+        setDepartmentModalOpen={
+          setDepartmentModalOpen
+        }
+        setDepartmentMutationError={
+          setDepartmentMutationError
+        }
+        setDepartmentSaving={
+          setDepartmentSaving
+        }
+
+        closeDepartmentModal={
+          closeDepartmentModal
+        }
+        saveDepartment={
+          saveDepartment
+        }
+        deleteDepartment={
+          deleteDepartment
+        }
+
+        showBulkMetadataModal={
+          showBulkMetadataModal
+        }
+        bulkMetadataFile={
+          bulkMetadataFile
+        }
+        bulkMetadataPreview={
+          bulkMetadataPreview
+        }
+        bulkMetadataError={
+          bulkMetadataError
+        }
+        bulkMetadataLoading={
+          bulkMetadataLoading
+        }
+        bulkMetadataImporting={
+          bulkMetadataImporting
+        }
+
+        setBulkMetadataFile={
+          setBulkMetadataFile
+        }
+        setBulkMetadataPreview={
+          setBulkMetadataPreview
+        }
+        setBulkMetadataError={
+          setBulkMetadataError
+        }
+
+        closeBulkMetadataModal={
+          closeBulkMetadataModal
+        }
+        handleBulkMetadataPreview={
+          handleBulkMetadataPreview
+        }
+        handleBulkMetadataImport={
+          handleBulkMetadataImport
+        }
+        downloadBulkMetadataTemplate={
+          downloadBulkMetadataTemplate
+        }
+
+        showMetadataModal={
+          showMetadataModal
+        }
+        form={
+          form
+        }
+        documentTypes={
+          documentTypes
+        }
+
+        setForm={
+          setForm
+        }
+        closeMetadataModal={
+          closeMetadataModal
+        }
+        handleMetadataSubmit={
+          handleMetadataSubmit
+        }
+
+        showUploadModal={
+          showUploadModal
+        }
+        selectedFile={
+          selectedFile
+        }
+        uploading={
+          uploading
+        }
+        uploadError={
+          uploadError
+        }
+        uploadedDocument={
+          uploadedDocument
+        }
+        uploadedAppraisal={
+          uploadedAppraisal
+        }
+
+        uploadFieldEntries={
+          uploadFieldEntries
+        }
+
+        appraisalMetadataForm={
+          appraisalMetadataForm
+        }
+        appraisalAdditionalMetadata={
+          appraisalAdditionalMetadata
+        }
+        appraisalCommittedAdditionalMetadata={
+          appraisalCommittedAdditionalMetadata
+        }
+        appraisalRequiredFieldsComplete={
+          appraisalRequiredFieldsComplete
+        }
+        appraisalDecisionLabel={
+          appraisalDecisionLabel
+        }
+        appraisalIsLinked={
+          appraisalIsLinked
+        }
+        matchedMetadata={
+          matchedMetadata
+        }
+        reviewingDecision={
+          reviewingDecision
+        }
+        reviewError={
+          reviewError
+        }
+
+        setAppraisalMetadataForm={
+          setAppraisalMetadataForm
+        }
+        setAppraisalAdditionalMetadata={
+          setAppraisalAdditionalMetadata
+        }
+        setAppraisalCommittedAdditionalMetadata={
+          setAppraisalCommittedAdditionalMetadata
+        }
+
+        handleFileChange={
+          handleFileChange
+        }
+        handleUpload={
+          handleUpload
+        }
+        handleAppraisalReview={
+          handleAppraisalReview
+        }
+        handleDoneAppraisal={
+          handleDoneAppraisal
+        }
+        handleCreateMetadataFromAppraisal={
+          handleCreateMetadataFromAppraisal
+        }
+        closeUploadModal={
+          closeUploadModal
+        }
+
+        modalRef={
+          modalRef
+        }
+        modalCloseButtonRef={
+          modalCloseButtonRef
+        }
+
+        StatusBadge={
+          StatusBadge
+        }
+        FormField={
+          FormField
+        }
+        formatFileSize={
+          formatFileSize
+        }
+        formatUploadFieldLabel={
+          formatUploadFieldLabel
+        }
+        formatUploadFieldValue={
+          formatUploadFieldValue
+        }
+      />
+    </main>
+  );

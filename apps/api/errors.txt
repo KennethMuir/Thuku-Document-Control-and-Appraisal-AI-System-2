@@ -1,0 +1,5 @@
+src/routes/fieldRegistry.ts(197,26): error TS2345: Argument of type '"OWNER"' is not assignable to parameter of type '"ADMIN" | "APPRAISER" | "VIEWER"'.
+src/routes/fieldRegistry.ts(444,26): error TS2345: Argument of type '"OWNER"' is not assignable to parameter of type '"ADMIN" | "APPRAISER" | "VIEWER"'.
+src/routes/fieldRegistry.ts(696,26): error TS2345: Argument of type '"OWNER"' is not assignable to parameter of type '"ADMIN" | "APPRAISER" | "VIEWER"'.
+src/routes/fieldRegistry.ts(802,26): error TS2345: Argument of type '"OWNER"' is not assignable to parameter of type '"ADMIN" | "APPRAISER" | "VIEWER"'.
+src/routes/fieldRegistry.ts(899,2): error TS2304: Cannot find name 'npm'.

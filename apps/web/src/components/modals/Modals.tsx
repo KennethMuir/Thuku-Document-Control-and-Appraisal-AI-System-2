@@ -1,6 +1,7 @@
 "use client";
 
 import { Appraisal } from "@/components/appraisal/Appraisal";
+import { DomainMultiSelect } from "@/components/domains/DomainMultiSelect";
 import { DomainRelationshipSelector } from "@/components/metadata/DomainRelationshipSelector";
 import { UniversalMetadataFieldEditor } from "@/components/metadata/UniversalMetadataFieldEditor";
 
@@ -77,6 +78,8 @@ type ModalsProps = {
   domainRelationshipTypes: DomainRelationshipType[];
   metadataDomainRelationships: DomainRelationshipSelection[];
   appraisalDomainRelationships: DomainRelationshipSelection[];
+  metadataDomainClassifications: number[];
+  appraisalDomainClassifications: number[];
   domainRelationshipsLoading: boolean;
   domainRelationshipsError: string;
   setMetadataDomainRelationships: Dispatch<
@@ -84,6 +87,12 @@ type ModalsProps = {
   >;
   setAppraisalDomainRelationships: Dispatch<
     SetStateAction<DomainRelationshipSelection[]>
+  >;
+  setMetadataDomainClassifications: Dispatch<
+    SetStateAction<number[]>
+  >;
+  setAppraisalDomainClassifications: Dispatch<
+    SetStateAction<number[]>
   >;
 
   departmentModalOpen: boolean;
@@ -231,9 +240,15 @@ export function Modals({
   domainRelationshipDomains,
   domainRelationshipTypes,
   metadataDomainRelationships,
+  appraisalDomainRelationships,
+  metadataDomainClassifications,
+  appraisalDomainClassifications,
   domainRelationshipsLoading,
   domainRelationshipsError,
   setMetadataDomainRelationships,
+  setAppraisalDomainRelationships,
+  setMetadataDomainClassifications,
+  setAppraisalDomainClassifications,
 
   departmentModalOpen,
   departmentEditingId,
@@ -1004,6 +1019,19 @@ export function Modals({
                 description="Associate this metadata record with one or more domains and define the relationship context."
               />
 
+              <DomainMultiSelect
+                domains={domainRelationshipDomains}
+                selectedDomainIds={metadataDomainClassifications}
+                onChange={setMetadataDomainClassifications}
+                disabled={
+                  !canManageMetadata ||
+                  domainRelationshipsLoading
+                }
+                loading={domainRelationshipsLoading}
+                error={domainRelationshipsError}
+                title="Domain Registry"
+                description="Select one or more domains for universal document classification."
+              />
               <UniversalMetadataFieldEditor
                 scope="register"
                 title="Universal Metadata Catalogue"
@@ -1510,6 +1538,30 @@ export function Modals({
                       handleCreateMetadataFromAppraisal={
                         handleCreateMetadataFromAppraisal
                       }
+                      appraisalDomainRelationshipDomains={
+                        domainRelationshipDomains
+                      }
+                      appraisalDomainRelationshipTypes={
+                        domainRelationshipTypes
+                      }
+                      appraisalDomainRelationships={
+                        appraisalDomainRelationships
+                      }
+                      appraisalDomainRelationshipsLoading={
+                        domainRelationshipsLoading
+                      }
+                      appraisalDomainRelationshipsError={
+                        domainRelationshipsError
+                      }
+                      setAppraisalDomainRelationships={
+                        setAppraisalDomainRelationships
+                      }
+                      appraisalDomainClassifications={
+                        appraisalDomainClassifications
+                      }
+                      setAppraisalDomainClassifications={
+                        setAppraisalDomainClassifications
+                      }
                       FormField={FormField}
                       StatusBadge={StatusBadge}
                       formatFileSize={
@@ -1558,3 +1610,4 @@ export function Modals({
     </>
   );
 }
+

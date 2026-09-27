@@ -11,6 +11,7 @@ import {
   createMetadataValue,
   deleteMetadataValue,
   getMetadataValues,
+  updateMetadataValue,
 } from "@/lib/api/metadataValues";
 
 import {
@@ -27,6 +28,7 @@ import type {
   MetadataValue,
   MetadataValueSource,
   MetadataValueVerificationStatus,
+  UpdateMetadataValueInput,
 } from "@/types/metadataValues";
 
 type UseMetadataValuesOptions = {
@@ -59,6 +61,31 @@ function getErrorMessage(
   return fallback;
 }
 
+function formatEditorValue(
+  value: unknown
+): string {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return "";
+  }
+
+  if (
+    typeof value === "object"
+  ) {
+    try {
+      return JSON.stringify(
+        value
+      );
+    } catch {
+      return String(value);
+    }
+  }
+
+  return String(value);
+}
+
 export function useMetadataValues({
   authLoading,
   authUser,
@@ -86,6 +113,9 @@ export function useMetadataValues({
 
   const [verificationStatus, setVerificationStatus] =
     useState<MetadataValueVerificationStatus>("UNVERIFIED");
+
+  const [editingValueId, setEditingValueId] =
+    useState<number | null>(null);
 
   const [loading, setLoading] =
     useState(false);
@@ -236,13 +266,134 @@ export function useMetadataValues({
     ]
   );
 
+  // Intentional data-loading effect: loadFields updates state when its request resolves.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     void loadFields();
   }, [loadFields]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
+  // Intentional data-loading effect: loadValues updates state when its request resolves.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     void loadValues();
   }, [loadValues]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  // Intentional editor synchronization: persisted values populate Step 2
+  // after the selected record, field, and loaded values are available.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (!metadataRecordId || !selectedFieldId) {
+      return;
+    }
+
+    const existingValue = values.find(
+      (value) =>
+        String(value.metadata_record_id) ===
+          String(metadataRecordId) &&
+        String(value.field_registry_id) ===
+          String(selectedFieldId)
+    );
+
+    if (
+      selectedField?.field_key ===
+      "reference_code"
+    ) {
+      setEditingValueId(null);
+      setValueInput("");
+      setSource("SYSTEM");
+      setConfidenceInput("");
+      setVerificationStatus("VERIFIED");
+      return;
+    }
+
+    if (
+      selectedField?.repeatable &&
+      editingValueId === null
+    ) {
+      setValueInput("");
+      setSource("USER");
+      setConfidenceInput("");
+      setVerificationStatus("UNVERIFIED");
+      return;
+    }
+
+    if (existingValue) {
+      setEditingValueId(existingValue.id);
+      setValueInput(
+        formatEditorValue(existingValue.value)
+      );
+      setSource(existingValue.source);
+      setConfidenceInput(
+        existingValue.confidence === null ||
+          existingValue.confidence === undefined
+          ? ""
+          : String(existingValue.confidence)
+      );
+      setVerificationStatus(
+        existingValue.verification_status
+      );
+      return;
+    }
+
+    setEditingValueId(null);
+    setValueInput("");
+    setSource("USER");
+    setConfidenceInput("");
+    setVerificationStatus("UNVERIFIED");
+  }, [
+    metadataRecordId,
+    selectedFieldId,
+    selectedField,
+    values,
+    editingValueId,
+  ]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  const resetEditor = useCallback(() => {
+    setValueInput("");
+    setConfidenceInput("");
+    setSelectedFieldId("");
+    setSource("USER");
+    setVerificationStatus("UNVERIFIED");
+    setEditingValueId(null);
+  }, []);
+
+  const editValue = useCallback(
+    (value: MetadataValue) => {
+      setError("");
+
+      setEditingValueId(value.id);
+      setSelectedFieldId(
+        String(value.field_registry_id)
+      );
+      setValueInput(
+        formatEditorValue(value.value)
+      );
+      setSource(value.source);
+      setConfidenceInput(
+        value.confidence === null ||
+        value.confidence === undefined
+          ? ""
+          : String(value.confidence)
+      );
+      setVerificationStatus(
+        value.verification_status
+      );
+
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth",
+      });
+    },
+    []
+  );
+
+  const cancelEdit = useCallback(() => {
+    resetEditor();
+    setError("");
+  }, [resetEditor]);
 
   const saveValue = useCallback(
     async () => {
@@ -251,6 +402,16 @@ export function useMetadataValues({
       }
 
       if (!selectedFieldId) {
+        return;
+      }
+
+      if (
+        selectedField?.field_key ===
+        "reference_code"
+      ) {
+        setError(
+          "Reference Code is system-generated from the selected Department and cannot be manually changed."
+        );
         return;
       }
 
@@ -274,7 +435,7 @@ export function useMetadataValues({
           ? null
           : Number(confidenceInput);
 
-      const input: CreateMetadataValueInput = {
+      const createInput: CreateMetadataValueInput = {
         metadata_record_id: recordId,
         field_registry_id: fieldId,
         value: valueInput,
@@ -288,8 +449,28 @@ export function useMetadataValues({
         setSaving(true);
         setError("");
 
-        const response =
-          await createMetadataValue(input);
+        let response: Response;
+
+        if (editingValueId !== null) {
+          const updateInput: UpdateMetadataValueInput = {
+            value: valueInput,
+            source,
+            confidence,
+            verification_status:
+              verificationStatus,
+          };
+
+          response =
+            await updateMetadataValue(
+              editingValueId,
+              updateInput
+            );
+        } else {
+          response =
+            await createMetadataValue(
+              createInput
+            );
+        }
 
         const data = await response.json();
 
@@ -297,18 +478,16 @@ export function useMetadataValues({
           throw new Error(
             getErrorMessage(
               data,
-              "Unable to save metadata value."
+              editingValueId !== null
+                ? "Unable to update metadata value."
+                : "Unable to save metadata value."
             )
           );
         }
 
         await loadValues();
 
-        setValueInput("");
-        setConfidenceInput("");
-        setSelectedFieldId("");
-        setSource("USER");
-        setVerificationStatus("UNVERIFIED");
+        resetEditor();
 
         return data;
       } catch (saveError) {
@@ -320,7 +499,9 @@ export function useMetadataValues({
         setError(
           saveError instanceof Error
             ? saveError.message
-            : "Unable to save metadata value."
+            : editingValueId !== null
+              ? "Unable to update metadata value."
+              : "Unable to save metadata value."
         );
 
         throw saveError;
@@ -335,7 +516,10 @@ export function useMetadataValues({
       source,
       confidenceInput,
       verificationStatus,
+      editingValueId,
+      selectedField,
       loadValues,
+      resetEditor,
     ]
   );
 
@@ -359,6 +543,10 @@ export function useMetadataValues({
           );
         }
 
+        if (editingValueId === valueId) {
+          resetEditor();
+        }
+
         await loadValues();
 
         return data;
@@ -379,7 +567,11 @@ export function useMetadataValues({
         setDeletingId(null);
       }
     },
-    [loadValues]
+    [
+      editingValueId,
+      loadValues,
+      resetEditor,
+    ]
   );
 
   return {
@@ -405,6 +597,10 @@ export function useMetadataValues({
     verificationStatus,
     setVerificationStatus,
 
+    editingValueId,
+    editValue,
+    cancelEdit,
+
     loading,
     fieldsLoading,
     saving,
@@ -417,3 +613,7 @@ export function useMetadataValues({
     removeValue,
   };
 }
+
+
+
+

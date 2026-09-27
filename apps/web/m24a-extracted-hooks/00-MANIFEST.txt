@@ -1,0 +1,23 @@
+M24A EXACT SOURCE EXTRACTION
+============================
+
+Source: src/app/page.tsx
+Generated: 2026-09-20T08:02:49.836Z
+Home() statements: 116
+
+Files generated:
+- 01-useAuthSession.ts.txt
+- 02-useDomainRelationships.ts.txt
+- 03-useDepartmentManagement.ts.txt
+- 04-useBulkMetadata.ts.txt
+- 05-useDocumentAppraisal.ts.txt
+- 06-useUserManagement.ts.txt
+- 07-useDocumentSearch.ts.txt
+- 08-useRegistryFilters.ts.txt
+- 09-all-react-state-effects.ts.txt
+- 10-all-home-functions.ts.txt
+
+IMPORTANT:
+These are exact source extractions from the existing page.tsx.
+No source file was modified.
+Some blocks intentionally appear in more than one category so dependencies are not lost.

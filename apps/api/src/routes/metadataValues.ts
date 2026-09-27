@@ -653,6 +653,18 @@ export function createMetadataValuesRouter(
           return;
         }
 
+        if (
+          metadataAndField.field_key ===
+          "reference_code"
+        ) {
+          res.status(400).json({
+            success: false,
+            error:
+              "Reference Code is system-generated from the selected Department and cannot be manually created.",
+          });
+          return;
+        }
+
         const validationError =
           validateFieldValue(
             metadataAndField.data_type,
@@ -914,6 +926,18 @@ export function createMetadataValuesRouter(
         const current =
           existing.rows[0];
 
+        if (
+          current.field_key ===
+          "reference_code"
+        ) {
+          res.status(400).json({
+            success: false,
+            error:
+              "Reference Code is system-generated from the selected Department and cannot be manually changed.",
+          });
+          return;
+        }
+
         if (value !== undefined) {
           const validationError =
             validateFieldValue(
@@ -1042,6 +1066,48 @@ export function createMetadataValuesRouter(
       }
 
       try {
+        const existing =
+          await pool.query(
+            `
+              SELECT
+                mv.id,
+                fr.field_key
+              FROM metadata_values mv
+              INNER JOIN field_registry fr
+                ON fr.id = mv.field_registry_id
+              WHERE
+                mv.id = $1
+                AND mv.organization_id = $2
+                AND fr.is_active = TRUE
+              LIMIT 1
+            `,
+            [
+              valueId,
+              organizationId,
+            ]
+          );
+
+        if (existing.rows.length === 0) {
+          res.status(404).json({
+            success: false,
+            error:
+              "Metadata value not found.",
+          });
+          return;
+        }
+
+        if (
+          existing.rows[0].field_key ===
+          "reference_code"
+        ) {
+          res.status(400).json({
+            success: false,
+            error:
+              "Reference Code is system-generated from the selected Department and cannot be deleted.",
+          });
+          return;
+        }
+
         const result =
           await pool.query(
             `
@@ -1092,3 +1158,4 @@ export function createMetadataValuesRouter(
 
   return router;
 }
+

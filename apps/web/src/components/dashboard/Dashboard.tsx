@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import type {
   Dispatch,
   SetStateAction,
@@ -180,7 +182,14 @@ export function Dashboard({
                     >
                       + Add Metadata
                     </button>
-                    )}
+                    )}                    <Link
+                      href="/metadata/values"
+                      className="rounded-xl border border-slate-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-slate-900"
+                    >
+                      Universal Metadata Values
+                    </Link>
+
+
 
                     <button
                       type="button"
@@ -441,3 +450,5 @@ export function Dashboard({
     </>
   );
 }
+
+

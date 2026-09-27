@@ -1,0 +1,2048 @@
+// 02-useDomainRelationships
+//
+// EXACT SOURCE EXTRACTED FROM: src/app/page.tsx
+// This file is an extraction only. No source code was modified.
+
+// ============================================================
+// SOURCE BLOCK 1
+// ============================================================
+const [
+    domainRelationshipDomains,
+    setDomainRelationshipDomains,
+  ] = useState<DomainRelationshipDomain[]>([]);
+
+// ============================================================
+// SOURCE BLOCK 2
+// ============================================================
+const [
+    domainRelationshipTypes,
+    setDomainRelationshipTypes,
+  ] = useState<DomainRelationshipType[]>([]);
+
+// ============================================================
+// SOURCE BLOCK 3
+// ============================================================
+const [
+    metadataDomainRelationships,
+    setMetadataDomainRelationships,
+  ] = useState<DomainRelationshipSelection[]>([]);
+
+// ============================================================
+// SOURCE BLOCK 4
+// ============================================================
+const [
+    appraisalDomainRelationships,
+    setAppraisalDomainRelationships,
+  ] = useState<DomainRelationshipSelection[]>([]);
+
+// ============================================================
+// SOURCE BLOCK 5
+// ============================================================
+const [
+    domainRelationshipsLoading,
+    setDomainRelationshipsLoading,
+  ] = useState(false);
+
+// ============================================================
+// SOURCE BLOCK 6
+// ============================================================
+const [
+    domainRelationshipsError,
+    setDomainRelationshipsError,
+  ] = useState("");
+
+// ============================================================
+// SOURCE BLOCK 7
+// ============================================================
+const loadDomainRelationshipDefinitions =
+    async () => {
+      if (!authUser) {
+        return;
+      }
+
+      try {
+        setDomainRelationshipsLoading(true);
+        setDomainRelationshipsError("");
+
+        const [
+          domainsResponse,
+          relationshipTypesResponse,
+        ] = await Promise.all([
+          getDomainRegistry(),
+          getRelationshipTypes(),
+        ]);
+
+        const [
+          domainsData,
+          relationshipTypesData,
+        ] = await Promise.all([
+          domainsResponse.json(),
+          relationshipTypesResponse.json(),
+        ]);
+
+        if (
+          !domainsResponse.ok ||
+          !domainsData.success
+        ) {
+          throw new Error(
+            domainsData.error ||
+              "Unable to load the domain registry."
+          );
+        }
+
+        if (
+          !relationshipTypesResponse.ok ||
+          !relationshipTypesData.success
+        ) {
+          throw new Error(
+            relationshipTypesData.error ||
+              "Unable to load domain relationship types."
+          );
+        }
+
+        const rawDomains =
+          Array.isArray(domainsData.domains)
+            ? domainsData.domains
+            : [];
+
+        const normalizedDomains =
+          rawDomains
+            .map(
+              (
+                domain: Record<string, unknown>
+              ) => {
+                const id = Number(
+                  domain.id
+                );
+
+                const domainKey =
+                  String(
+                    domain.domain_key ??
+                      domain.domainKey ??
+                      ""
+                  ).trim();
+
+                const displayName =
+                  String(
+                    domain.display_name ??
+                      domain.displayName ??
+                      domainKey
+                  ).trim();
+
+                if (
+                  !Number.isInteger(id) ||
+                  id <= 0 ||
+                  !domainKey
+                ) {
+                  return null;
+                }
+
+                return {
+                  id,
+                  domain_key: domainKey,
+                  display_name:
+                    displayName,
+                  description:
+                    domain.description == null
+                      ? null
+                      : String(
+                          domain.description
+                        ),
+                  domain_family:
+                    domain.domain_family == null
+                      ? null
+                      : String(
+                          domain.domain_family
+                        ),
+                };
+              }
+            )
+            .filter(
+              (domain: unknown): domain is DomainRelationshipDomain =>
+                domain !== null
+            );
+
+        const rawTypes =
+          Array.isArray(
+            relationshipTypesData.relationshipTypes
+          )
+            ? relationshipTypesData.relationshipTypes
+            : Array.isArray(
+                relationshipTypesData.types
+              )
+              ? relationshipTypesData.types
+              : [];
+
+        const normalizedTypes =
+          rawTypes
+            .map(
+              (
+                relationshipType: unknown
+              ) => {
+                if (
+                  typeof relationshipType ===
+                  "string"
+                ) {
+                  return {
+                    value:
+                      relationshipType,
+                    label:
+                      relationshipType,
+                  };
+                }
+
+                if (
+                  !relationshipType ||
+                  typeof relationshipType !==
+                    "object"
+                ) {
+                  return null;
+                }
+
+                const item =
+                  relationshipType as Record<
+                    string,
+                    unknown
+                  >;
+
+                const value =
+                  String(
+                    item.value ??
+                      item.relationship_type ??
+                      item.relationshipType ??
+                      item.key ??
+                      ""
+                  ).trim();
+
+                if (!value) {
+                  return null;
+                }
+
+                return {
+                  value,
+                  label:
+                    String(
+                      item.label ??
+                        item.display_name ??
+                        item.displayName ??
+                        value
+                    ).trim() || value,
+                };
+              }
+            )
+            .filter(
+              (relationshipType: unknown): relationshipType is DomainRelationshipType =>
+                relationshipType !== null
+            );
+
+        setDomainRelationshipDomains(
+          normalizedDomains
+        );
+
+        setDomainRelationshipTypes(
+          normalizedTypes
+        );
+      } catch (error) {
+        console.error(
+          "Unable to load domain relationship definitions:",
+          error
+        );
+
+        setDomainRelationshipsError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load domain relationships."
+        );
+      } finally {
+        setDomainRelationshipsLoading(
+          false
+        );
+      }
+    };
+
+// ============================================================
+// SOURCE BLOCK 8
+// ============================================================
+const extractRelationshipSelections =
+    (
+      data: Record<string, unknown>
+    ): DomainRelationshipSelection[] => {
+      const relationships =
+        Array.isArray(
+          data.relationships
+        )
+          ? data.relationships
+          : [];
+
+      return relationships
+        .map(
+          (
+            relationship: unknown
+          ) => {
+            if (
+              !relationship ||
+              typeof relationship !==
+                "object"
+            ) {
+              return null;
+            }
+
+            const item =
+              relationship as Record<
+                string,
+                unknown
+              >;
+
+            const domainId = Number(
+              item.domain_id ??
+                item.domainId ??
+                (
+                  item.domain &&
+                  typeof item.domain ===
+                    "object"
+                    ? (
+                        item.domain as Record<
+                          string,
+                          unknown
+                        >
+                      ).id
+                    : undefined
+                )
+            );
+
+            const relationshipType =
+              String(
+                item.relationship_type ??
+                  item.relationshipType ??
+                  ""
+              ).trim();
+
+            if (
+              !Number.isInteger(
+                domainId
+              ) ||
+              domainId <= 0 ||
+              !relationshipType
+            ) {
+              return null;
+            }
+
+            return {
+              domainId,
+              relationshipType,
+            };
+          }
+        )
+        .filter(
+          (
+            relationship
+          ): relationship is DomainRelationshipSelection =>
+            relationship !== null
+        );
+    };
+
+// ============================================================
+// SOURCE BLOCK 9
+// ============================================================
+const loadMetadataDomainRelationships =
+    async (
+      metadataRecordId:
+        | string
+        | number
+        | null
+        | undefined
+    ) => {
+      if (
+        metadataRecordId === null ||
+        metadataRecordId ===
+          undefined ||
+        String(metadataRecordId).trim() ===
+          ""
+      ) {
+        setMetadataDomainRelationships(
+          []
+        );
+
+        setAppraisalDomainRelationships(
+          []
+        );
+
+        return;
+      }
+
+      try {
+        setDomainRelationshipsLoading(
+          true
+        );
+        setDomainRelationshipsError("");
+
+        const response =
+          await getMetadataDomainRelationships(
+            metadataRecordId
+          );
+
+        const data =
+          await response.json();
+
+        if (
+          !response.ok ||
+          !data.success
+        ) {
+          throw new Error(
+            data.error ||
+              "Unable to load metadata domain relationships."
+          );
+        }
+
+        const selections =
+          extractRelationshipSelections(
+            data
+          );
+
+        setMetadataDomainRelationships(
+          selections
+        );
+
+        setAppraisalDomainRelationships(
+          selections
+        );
+      } catch (error) {
+        console.error(
+          "Unable to load metadata domain relationships:",
+          error
+        );
+
+        setMetadataDomainRelationships(
+          []
+        );
+
+        setAppraisalDomainRelationships(
+          []
+        );
+
+        setDomainRelationshipsError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load metadata domain relationships."
+        );
+      } finally {
+        setDomainRelationshipsLoading(
+          false
+        );
+      }
+    };
+
+// ============================================================
+// SOURCE BLOCK 10
+// ============================================================
+const saveMetadataDomainRelationships =
+    async (
+      metadataRecordId: string | number,
+      desiredRelationships:
+        DomainRelationshipSelection[]
+    ) => {
+      const numericMetadataId =
+        Number(metadataRecordId);
+
+      if (
+        !Number.isInteger(
+          numericMetadataId
+        ) ||
+        numericMetadataId <= 0
+      ) {
+        throw new Error(
+          "A valid metadata record is required before domain relationships can be saved."
+        );
+      }
+
+      setDomainRelationshipsLoading(
+        true
+      );
+      setDomainRelationshipsError("");
+
+      try {
+        const currentResponse =
+          await getMetadataDomainRelationships(
+            numericMetadataId
+          );
+
+        const currentData =
+          await currentResponse.json();
+
+        if (
+          !currentResponse.ok ||
+          !currentData.success
+        ) {
+          throw new Error(
+            currentData.error ||
+              "Unable to retrieve the current metadata domain relationships."
+          );
+        }
+
+        const currentRelationships =
+          Array.isArray(
+            currentData.relationships
+          )
+            ? currentData.relationships
+            : [];
+
+        const currentSelections =
+          extractRelationshipSelections(
+            currentData
+          );
+
+        const keyFor =
+          (
+            relationship: DomainRelationshipSelection
+          ) =>
+            `${relationship.domainId}:${relationship.relationshipType}`;
+
+        const desiredKeys =
+          new Set(
+            desiredRelationships.map(
+              keyFor
+            )
+          );
+
+        const currentKeys =
+          new Set(
+            currentSelections.map(
+              keyFor
+            )
+          );
+
+        /*
+         * Delete relationships that were removed
+         * from the selector.
+         */
+        for (
+          const relationship of currentRelationships
+        ) {
+          if (
+            !relationship ||
+            typeof relationship !==
+              "object"
+          ) {
+            continue;
+          }
+
+          const item =
+            relationship as Record<
+              string,
+              unknown
+            >;
+
+          const relationshipId =
+            Number(
+              item.id
+            );
+
+          const domainId =
+            Number(
+              item.domain_id ??
+                item.domainId
+            );
+
+          const relationshipType =
+            String(
+              item.relationship_type ??
+                item.relationshipType ??
+                ""
+            ).trim();
+
+          if (
+            !Number.isInteger(
+              relationshipId
+            ) ||
+            relationshipId <= 0 ||
+            !Number.isInteger(
+              domainId
+            ) ||
+            domainId <= 0 ||
+            !relationshipType
+          ) {
+            continue;
+          }
+
+          const key =
+            `${domainId}:${relationshipType}`;
+
+          if (
+            !desiredKeys.has(key)
+          ) {
+            const response =
+              await deleteDomainRelationship(
+                relationshipId
+              );
+
+            const data =
+              await response.json();
+
+            if (
+              !response.ok ||
+              !data.success
+            ) {
+              throw new Error(
+                data.error ||
+                  "Unable to remove a metadata domain relationship."
+              );
+            }
+          }
+        }
+
+        /*
+         * Create newly selected relationships.
+         */
+        for (
+          const relationship of desiredRelationships
+        ) {
+          const key =
+            keyFor(
+              relationship
+            );
+
+          if (
+            currentKeys.has(key)
+          ) {
+            continue;
+          }
+
+          const response =
+            await createDomainRelationship({
+              metadata_record_id:
+                numericMetadataId,
+              domain_id:
+                relationship.domainId,
+              relationship_type:
+                relationship.relationshipType,
+            });
+
+          const data =
+            await response.json();
+
+          if (
+            !response.ok ||
+            !data.success
+          ) {
+            throw new Error(
+              data.error ||
+                "Unable to create a metadata domain relationship."
+            );
+          }
+        }
+
+        /*
+         * Re-read the server state so the UI reflects
+         * the actual persisted relationships.
+         */
+        const finalResponse =
+          await getMetadataDomainRelationships(
+            numericMetadataId
+          );
+
+        const finalData =
+          await finalResponse.json();
+
+        if (
+          !finalResponse.ok ||
+          !finalData.success
+        ) {
+          throw new Error(
+            finalData.error ||
+              "Domain relationships were saved but could not be reloaded."
+          );
+        }
+
+        const finalSelections =
+          extractRelationshipSelections(
+            finalData
+          );
+
+        setMetadataDomainRelationships(
+          finalSelections
+        );
+
+        setAppraisalDomainRelationships(
+          finalSelections
+        );
+
+        return finalSelections;
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Unable to save metadata domain relationships.";
+
+        setDomainRelationshipsError(
+          message
+        );
+
+        throw error;
+      } finally {
+        setDomainRelationshipsLoading(
+          false
+        );
+      }
+    };
+
+// ============================================================
+// SOURCE BLOCK 11
+// ============================================================
+useEffect(() => {
+    if (!authUser) {
+      return;
+    }
+
+    void loadDomainRelationshipDefinitions();
+  }, [authUser]);
+
+// ============================================================
+// SOURCE BLOCK 12
+// ============================================================
+const closeMetadataModal = () => {
+    setShowMetadataModal(false);
+    setMetadataDomainRelationships([]);
+    setDomainRelationshipsError("");
+  };
+
+// ============================================================
+// SOURCE BLOCK 13
+// ============================================================
+const closeUploadModal = () => {
+    if (uploading) {
+      return;
+    }
+
+    setShowUploadModal(false);
+    setSelectedFile(null);
+    setUploadError("");
+    setUploadedDocument(null);
+    setUploadedAppraisal(null);
+    setReviewingDecision(false);
+    setReviewError("");
+    setIsCreatingNewMetadata(false);
+    setAppraisalDomainRelationships([]);
+    setDomainRelationshipsError("");
+  };
+
+// ============================================================
+// SOURCE BLOCK 14
+// ============================================================
+const handleMetadataSubmit = async (
+    event: FormEvent<HTMLFormElement>
+  ) => {
+    if (!canManageMetadata) {
+      return;
+    }
+
+    event.preventDefault();
+
+    try {
+      setDomainRelationshipsError("");
+
+      const response =
+        await createMetadata({
+          referenceCode:
+            form.referenceCode.trim(),
+
+          personName:
+            form.personName.trim() ||
+            null,
+
+          title:
+            form.title.trim() ||
+            null,
+
+          departmentId:
+            form.departmentId ||
+            null,
+
+          documentTypeId:
+            form.documentTypeId ||
+            null,
+
+          year:
+            form.year ||
+            null,
+
+          documentDate:
+            form.documentDate ||
+            null,
+
+          section:
+            form.section.trim() ||
+            null,
+
+          description:
+            form.description.trim() ||
+            null,
+        });
+
+      const data =
+        await response.json();
+
+      if (
+        !response.ok ||
+        !data.success
+      ) {
+        throw new Error(
+          data.error ||
+            "Unable to create metadata record."
+        );
+      }
+
+      const metadataRecordId =
+        Number(
+          data.metadata?.id ??
+            data.record?.id ??
+            data.id ??
+            0
+        );
+
+      if (
+        Number.isInteger(
+          metadataRecordId
+        ) &&
+        metadataRecordId > 0
+      ) {
+        await saveMetadataDomainRelationships(
+          metadataRecordId,
+          metadataDomainRelationships
+        );
+      }
+
+      setForm({
+        ...EMPTY_FORM,
+      });
+
+      setMetadataDomainRelationships(
+        []
+      );
+
+      closeMetadataModal();
+
+      await loadData();
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Unable to create metadata record."
+      );
+    }
+  };
+
+// ============================================================
+// SOURCE BLOCK 15
+// ============================================================
+const handleFileChange = (
+    event: ChangeEvent<HTMLInputElement>
+  ) => {
+    const file =
+      event.target.files?.[0] ??
+      null;
+
+    setUploadError("");
+    setUploadedDocument(null);
+    setUploadedAppraisal(null);
+    setAppraisalDomainRelationships(
+      []
+    );
+
+    if (!file) {
+      setSelectedFile(null);
+      return;
+    }
+
+    const allowedTypes = [
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ];
+
+    const extension =
+      file.name
+        .toLowerCase()
+        .split(".")
+        .pop();
+
+    if (
+      !allowedTypes.includes(
+        file.type
+      ) &&
+      extension !== "pdf" &&
+      extension !== "docx"
+    ) {
+      setUploadError(
+        "Only PDF and DOCX documents are currently supported."
+      );
+
+      setSelectedFile(null);
+      event.target.value = "";
+      return;
+    }
+
+    setSelectedFile(file);
+  };
+
+// ============================================================
+// SOURCE BLOCK 16
+// ============================================================
+const handleUpload = async (
+    event: FormEvent<HTMLFormElement>
+  ) => {
+    if (!canManageDocuments) {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (!selectedFile) {
+      setUploadError(
+        "Please select a PDF or DOCX document."
+      );
+      return;
+    }
+
+    try {
+      setUploading(true);
+      setUploadError("");
+      setUploadedDocument(null);
+      setUploadedAppraisal(null);
+      setReviewingDecision(false);
+      setReviewError("");
+      setAppraisalDomainRelationships(
+        []
+      );
+
+      const response =
+        await uploadDocument(
+          selectedFile
+        );
+
+      const data =
+        await response.json();
+
+      if (
+        !response.ok ||
+        !data.success
+      ) {
+        throw new Error(
+          data.error ||
+            "Document upload failed."
+        );
+      }
+
+      if (
+        !data.document ||
+        typeof data.document !==
+          "object"
+      ) {
+        throw new Error(
+          "Document uploaded, but the API returned an invalid document response."
+        );
+      }
+
+      setUploadedDocument(
+        data.document as UploadedDocument
+      );
+
+      if (
+        data.appraisal &&
+        typeof data.appraisal ===
+          "object"
+      ) {
+        const appraisal =
+          data.appraisal as UploadedAppraisal;
+
+        setUploadedAppraisal(
+          appraisal
+        );
+
+        const metadata =
+          appraisal.metadata ??
+          null;
+
+        setAppraisalMetadataForm(
+          {
+            referenceCode:
+              metadata?.reference_code ??
+              data.metadata?.reference_code ??
+              "",
+
+            title:
+              metadata?.title ??
+              data.metadata?.title ??
+              "",
+
+            documentDate:
+              metadata?.document_date ??
+              data.metadata?.document_date ??
+              "",
+
+            year:
+              metadata?.year != null
+                ? String(
+                    metadata.year
+                  )
+                : data.metadata
+                      ?.year != null
+                  ? String(
+                      data.metadata
+                        .year
+                    )
+                  : "",
+
+            personName:
+              metadata?.person_name ??
+              data.metadata?.person_name ??
+              "",
+
+            departmentId:
+              metadata?.department_id !=
+              null
+                ? String(
+                    metadata.department_id
+                  )
+                : "",
+
+            documentTypeId:
+              metadata?.document_type_id !=
+              null
+                ? String(
+                    metadata.document_type_id
+                  )
+                : "",
+
+            section:
+              metadata?.section ??
+              data.metadata?.section ??
+              "",
+
+            description:
+              metadata?.description ??
+              data.metadata?.description ??
+              "",
+          }
+        );
+
+        setAppraisalCommittedAdditionalMetadata(
+          Object.entries(
+            metadata?.additional_metadata ??
+              data.metadata
+                ?.additional_metadata ??
+              {}
+          ).map(
+            ([key, value]) => ({
+              key,
+              value:
+                value === null ||
+                value ===
+                  undefined
+                  ? ""
+                  : String(value),
+            })
+          )
+        );
+
+        setAppraisalAdditionalMetadata(
+          []
+        );
+
+        const metadataRecordId =
+          appraisal.metadataRecordId ??
+          data.metadata?.id ??
+          null;
+
+        if (
+          metadataRecordId
+        ) {
+          await loadMetadataDomainRelationships(
+            metadataRecordId
+          );
+        } else {
+          setAppraisalDomainRelationships(
+            []
+          );
+        }
+      } else {
+        setUploadedAppraisal(
+          null
+        );
+
+        setAppraisalDomainRelationships(
+          []
+        );
+      }
+
+      setReviewError("");
+      setSelectedFile(null);
+
+      const fileInput =
+        document.getElementById(
+          "document-upload"
+        ) as HTMLInputElement | null;
+
+      if (fileInput) {
+        fileInput.value = "";
+      }
+
+      await loadData();
+    } catch (error) {
+      setUploadError(
+        error instanceof Error
+          ? error.message
+          : "Unable to upload document."
+      );
+    } finally {
+      setUploading(false);
+    }
+  };
+
+// ============================================================
+// SOURCE BLOCK 17
+// ============================================================
+const handleDoneAppraisal =
+    async () => {
+      if (!canManageDocuments) {
+        return;
+      }
+
+      if (
+        !uploadedDocument?.id ||
+        !uploadedAppraisal
+      ) {
+        return;
+      }
+
+      if (
+        isCreatingNewMetadata
+      ) {
+        closeUploadModal();
+        return;
+      }
+
+      const metadataRecordId =
+        uploadedAppraisal.metadataRecordId ??
+        null;
+
+      const referenceCode =
+        appraisalMetadataForm.referenceCode.trim() ||
+        String(
+          uploadedAppraisal.metadata
+            ?.reference_code ??
+            ""
+        ).trim();
+
+      if (
+        !metadataRecordId &&
+        !referenceCode
+      ) {
+        setReviewError(
+          "A metadata reference code has not been assigned to this document."
+        );
+
+        return;
+      }
+
+      try {
+        setReviewingDecision(true);
+        setReviewError("");
+
+        const response =
+          await reviewDocument(
+            Number(
+              uploadedDocument.id
+            ),
+            {
+              decision:
+                metadataRecordId !==
+                null
+                  ? "APPROVE"
+                  : "CREATE_METADATA",
+
+              metadataRecordId,
+
+              metadata:
+                buildAppraisalMetadata(
+                  referenceCode
+                ),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (
+          !response.ok ||
+          !data.success
+        ) {
+          throw new Error(
+            data.error ||
+              data.message ||
+              data.details ||
+              "Unable to save the appraisal."
+          );
+        }
+
+        if (
+          data.document
+        ) {
+          setUploadedDocument(
+            data.document
+          );
+        }
+
+        const persistedMetadataId =
+          Number(
+            data.metadata?.id ??
+              metadataRecordId ??
+              0
+          );
+
+        if (
+          Number.isInteger(
+            persistedMetadataId
+          ) &&
+          persistedMetadataId >
+            0
+        ) {
+          await saveMetadataDomainRelationships(
+            persistedMetadataId,
+            appraisalDomainRelationships
+          );
+        }
+
+        await loadData();
+
+        setReviewError("");
+        closeUploadModal();
+      } catch (error) {
+        setReviewError(
+          error instanceof Error
+            ? error.message
+            : "Unable to save the appraisal."
+        );
+      } finally {
+        setReviewingDecision(
+          false
+        );
+      }
+    };
+
+// ============================================================
+// SOURCE BLOCK 18
+// ============================================================
+const handleCreateMetadataFromAppraisal =
+    async () => {
+      if (!canManageDocuments) {
+        return;
+      }
+
+      if (
+        !uploadedDocument?.id ||
+        !uploadedAppraisal
+      ) {
+        return;
+      }
+
+      if (
+        !isCreatingNewMetadata
+      ) {
+        return;
+      }
+
+      const referenceCode =
+        appraisalMetadataForm.referenceCode.trim();
+
+      if (!referenceCode) {
+        setReviewError(
+          "A reference code has not been assigned to this document."
+        );
+
+        return;
+      }
+
+      if (
+        !appraisalRequiredFieldsComplete
+      ) {
+        setReviewError(
+          "Please complete the required metadata fields before creating the metadata record."
+        );
+
+        return;
+      }
+
+      try {
+        setReviewingDecision(true);
+        setReviewError("");
+
+        const response =
+          await reviewDocument(
+            Number(
+              uploadedDocument.id
+            ),
+            {
+              decision:
+                "CREATE_METADATA",
+
+              metadataRecordId:
+                uploadedAppraisal.metadataRecordId,
+
+              metadata:
+                buildAppraisalMetadata(
+                  referenceCode
+                ),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (
+          !response.ok ||
+          !data.success
+        ) {
+          throw new Error(
+            data.error ||
+              data.message ||
+              data.details ||
+              "Unable to create and link the new metadata record."
+          );
+        }
+
+        if (
+          data.document
+        ) {
+          setUploadedDocument(
+            data.document
+          );
+        }
+
+        const persistedMetadataId =
+          Number(
+            data.metadata?.id ??
+              uploadedAppraisal.metadataRecordId ??
+              0
+          );
+
+        if (
+          Number.isInteger(
+            persistedMetadataId
+          ) &&
+          persistedMetadataId >
+            0
+        ) {
+          await saveMetadataDomainRelationships(
+            persistedMetadataId,
+            appraisalDomainRelationships
+          );
+        }
+
+        await loadData();
+
+        setUploadedAppraisal(
+          (
+            current
+          ) =>
+            current
+              ? {
+                  ...current,
+                  decision:
+                    "NEW_METADATA_CREATED",
+                  metadataRecordId:
+                    persistedMetadataId ||
+                    current.metadataRecordId,
+                }
+              : current
+        );
+
+        setIsCreatingNewMetadata(
+          false
+        );
+
+        setReviewError("");
+      } catch (error) {
+        setReviewError(
+          error instanceof Error
+            ? error.message
+            : "Unable to create and link the new metadata record."
+        );
+      } finally {
+        setReviewingDecision(
+          false
+        );
+      }
+    };
+
+// ============================================================
+// SOURCE BLOCK 19
+// ============================================================
+const handleAppraisalReview =
+    async (
+      decision:
+        | "APPROVE"
+        | "REJECT"
+    ) => {
+      if (!canManageDocuments) {
+        return;
+      }
+
+      if (
+        !uploadedDocument?.id ||
+        !uploadedAppraisal
+      ) {
+        return;
+      }
+
+      if (
+        decision === "REJECT"
+      ) {
+        setReviewError("");
+        setIsCreatingNewMetadata(
+          true
+        );
+
+        return;
+      }
+
+      if (
+        !uploadedAppraisal.metadataRecordId
+      ) {
+        setReviewError(
+          "There is no metadata record available to approve."
+        );
+
+        return;
+      }
+
+      try {
+        setReviewingDecision(
+          true
+        );
+
+        setReviewError("");
+
+        const response =
+          await reviewDocument(
+            Number(
+              uploadedDocument.id
+            ),
+            {
+              decision:
+                "APPROVE",
+
+              metadataRecordId:
+                uploadedAppraisal.metadataRecordId,
+
+              metadata:
+                buildAppraisalMetadata(
+                  appraisalMetadataForm.referenceCode.trim()
+                ),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (
+          !response.ok ||
+          !data.success
+        ) {
+          throw new Error(
+            data.error ||
+              data.message ||
+              data.details ||
+              "Unable to approve the appraisal decision."
+          );
+        }
+
+        if (
+          data.document
+        ) {
+          setUploadedDocument(
+            data.document
+          );
+        }
+
+        const persistedMetadataId =
+          Number(
+            data.metadata?.id ??
+              uploadedAppraisal.metadataRecordId ??
+              0
+          );
+
+        if (
+          Number.isInteger(
+            persistedMetadataId
+          ) &&
+          persistedMetadataId >
+            0
+        ) {
+          await saveMetadataDomainRelationships(
+            persistedMetadataId,
+            appraisalDomainRelationships
+          );
+        }
+
+        await loadData();
+
+        setUploadedAppraisal(
+          (
+            current
+          ) =>
+            current
+              ? {
+                  ...current,
+                  decision:
+                    "LINKED",
+                  metadataRecordId:
+                    persistedMetadataId ||
+                    current.metadataRecordId,
+                }
+              : current
+        );
+
+        setReviewError("");
+      } catch (error) {
+        setReviewError(
+          error instanceof Error
+            ? error.message
+            : "Unable to approve the appraisal decision."
+        );
+      } finally {
+        setReviewingDecision(
+          false
+        );
+      }
+    };
+
+// ============================================================
+// SOURCE BLOCK 20
+// ============================================================
+return (
+    <main className="min-h-screen bg-[#f5f7fa] text-slate-900">
+      <div
+        ref={appContentRef}
+        className="flex min-h-screen"
+      >
+        <Sidebar
+          activePage={activePage}
+          setActivePage={setActivePage}
+          canManageDocuments={
+            canManageDocuments
+          }
+          setShowUploadModal={
+            setShowUploadModal
+          }
+          authUser={authUser}
+          logout={logout}
+          loggingOut={loggingOut}
+        />
+
+        <section className="flex-1">
+          <TopBar
+            activePage={activePage}
+            setActivePage={setActivePage}
+            canManageDocuments={
+              canManageDocuments
+            }
+            setShowUploadModal={
+              setShowUploadModal
+            }
+          />
+
+          <div className="px-6 py-8 lg:px-10">
+            {activePage ===
+              "Dashboard" && (
+              <Dashboard
+                statistics={statistics}
+                departments={
+                  departments
+                }
+                documents={
+                  documents
+                }
+                metadata={
+                  metadata
+                }
+                statCards={
+                  statCards
+                }
+                dashboardDocumentFilter={
+                  dashboardDocumentFilter
+                }
+                dashboardMetadataFilter={
+                  dashboardMetadataFilter
+                }
+                canManageMetadata={
+                  canManageMetadata
+                }
+                setDashboardDocumentFilter={
+                  setDashboardDocumentFilter
+                }
+                setDashboardMetadataFilter={
+                  setDashboardMetadataFilter
+                }
+                setShowMetadataModal={
+                  setShowMetadataModal
+                }
+                setActivePage={
+                  setActivePage
+                }
+                handleDashboardStatCardClick={
+                  handleDashboardStatCardClick
+                }
+                openDepartmentRecords={
+                  openDepartmentRecords
+                }
+                getStatValue={
+                  getStatValue
+                }
+              />
+            )}
+
+            {activePage ===
+              "Domain Registry" && (
+              <DomainRegistry
+                canManageDomains={
+                  canManageDomains
+                }
+              />
+            )}
+
+            {activePage ===
+              "Metadata Registry" && (
+              <MetadataRegistry
+                metadata={
+                  metadata
+                }
+                departments={
+                  departments
+                }
+                documents={
+                  documents
+                }
+                selectedDepartment={
+                  selectedDepartment
+                }
+                selectedDepartmentDocuments={
+                  selectedDepartmentDocuments
+                }
+                filteredMetadata={
+                  filteredMetadata
+                }
+                searchTerm={
+                  searchTerm
+                }
+                canManageMetadata={
+                  canManageMetadata
+                }
+                loading={
+                  loading
+                }
+                expandedAdditionalMetadata={
+                  expandedAdditionalMetadata
+                }
+                setExpandedAdditionalMetadata={
+                  setExpandedAdditionalMetadata
+                }
+                setSearchTerm={
+                  setSearchTerm
+                }
+                setSelectedDepartmentId={
+                  setSelectedDepartmentId
+                }
+                setShowMetadataModal={
+                  setShowMetadataModal
+                }
+                setShowBulkMetadataModal={
+                  setShowBulkMetadataModal
+                }
+                SummaryCard={
+                  SummaryCard
+                }
+                StatusBadge={
+                  StatusBadge
+                }
+              />
+            )}
+
+            {activePage ===
+              "Documents" && (
+              <Documents
+                documents={
+                  documents
+                }
+                dashboardFilteredDocuments={
+                  dashboardFilteredDocuments
+                }
+                metadata={
+                  metadata
+                }
+                dashboardDocumentFilter={
+                  dashboardDocumentFilter
+                }
+                canManageDocuments={
+                  canManageDocuments
+                }
+                loading={
+                  loading
+                }
+                setShowUploadModal={
+                  setShowUploadModal
+                }
+                setReviewError={
+                  setReviewError
+                }
+                handleOpenDocument={
+                  handleOpenDocument
+                }
+                formatFileSize={
+                  formatFileSize
+                }
+                StatusBadge={
+                  StatusBadge
+                }
+              />
+            )}
+
+            {activePage ===
+              "Search" && (
+              <Search
+                searchLoading={
+                  searchLoading
+                }
+                searchError={
+                  searchError
+                }
+                searchResults={
+                  searchResults
+                }
+                searchTerm={
+                  searchTerm
+                }
+                setSearchTerm={
+                  setSearchTerm
+                }
+                departments={
+                  departments
+                }
+                documents={
+                  documents
+                }
+                metadata={
+                  metadata
+                }
+                StatusBadge={
+                  StatusBadge
+                }
+                handleOpenDocument={
+                  handleOpenDocument
+                }
+              />
+            )}
+
+            {activePage ===
+              "Departments" && (
+              <Departments
+                departments={
+                  departments
+                }
+                canManageDepartments={
+                  canManageDepartments
+                }
+                departmentModalOpen={
+                  departmentModalOpen
+                }
+                departmentMutationError={
+                  departmentMutationError
+                }
+                openAddDepartmentModal={
+                  openAddDepartmentModal
+                }
+                openEditDepartmentModal={
+                  openEditDepartmentModal
+                }
+                openDepartmentRecords={
+                  openDepartmentRecords
+                }
+              />
+            )}
+
+            {activePage ===
+              "Settings" && (
+              <Settings
+                authUser={
+                  authUser
+                }
+                userManagementUsers={
+                  userManagementUsers
+                }
+                userManagementLoading={
+                  userManagementLoading
+                }
+                userManagementError={
+                  userManagementError
+                }
+                updatingUserId={
+                  updatingUserId
+                }
+                updateManagedUser={
+                  updateManagedUser
+                }
+              />
+            )}
+          </div>
+        </section>
+      </div>
+
+      <Modals
+        canManageDepartments={
+          canManageDepartments
+        }
+        canManageMetadata={
+          canManageMetadata
+        }
+        canManageDocuments={
+          canManageDocuments
+        }
+        isCreatingNewMetadata={
+          isCreatingNewMetadata
+        }
+
+        /*
+         * M23 DOMAIN RELATIONSHIPS
+         */
+        domainRelationshipDomains={
+          domainRelationshipDomains
+        }
+        domainRelationshipTypes={
+          domainRelationshipTypes
+        }
+        metadataDomainRelationships={
+          metadataDomainRelationships
+        }
+        appraisalDomainRelationships={
+          appraisalDomainRelationships
+        }
+        domainRelationshipsLoading={
+          domainRelationshipsLoading
+        }
+        domainRelationshipsError={
+          domainRelationshipsError
+        }
+        setMetadataDomainRelationships={
+          setMetadataDomainRelationships
+        }
+        setAppraisalDomainRelationships={
+          setAppraisalDomainRelationships
+        }
+
+        departmentModalOpen={
+          departmentModalOpen
+        }
+        departmentEditingId={
+          departmentEditingId
+        }
+        departmentForm={
+          departmentForm
+        }
+        departmentMutationError={
+          departmentMutationError
+        }
+        departmentSaving={
+          departmentSaving
+        }
+        departments={
+          departments
+        }
+
+        setDepartmentForm={
+          setDepartmentForm
+        }
+        setDepartmentModalOpen={
+          setDepartmentModalOpen
+        }
+        setDepartmentMutationError={
+          setDepartmentMutationError
+        }
+        setDepartmentSaving={
+          setDepartmentSaving
+        }
+
+        closeDepartmentModal={
+          closeDepartmentModal
+        }
+        saveDepartment={
+          saveDepartment
+        }
+        deleteDepartment={
+          deleteDepartment
+        }
+
+        showBulkMetadataModal={
+          showBulkMetadataModal
+        }
+        bulkMetadataFile={
+          bulkMetadataFile
+        }
+        bulkMetadataPreview={
+          bulkMetadataPreview
+        }
+        bulkMetadataError={
+          bulkMetadataError
+        }
+        bulkMetadataLoading={
+          bulkMetadataLoading
+        }
+        bulkMetadataImporting={
+          bulkMetadataImporting
+        }
+
+        setBulkMetadataFile={
+          setBulkMetadataFile
+        }
+        setBulkMetadataPreview={
+          setBulkMetadataPreview
+        }
+        setBulkMetadataError={
+          setBulkMetadataError
+        }
+
+        closeBulkMetadataModal={
+          closeBulkMetadataModal
+        }
+        handleBulkMetadataPreview={
+          handleBulkMetadataPreview
+        }
+        handleBulkMetadataImport={
+          handleBulkMetadataImport
+        }
+        downloadBulkMetadataTemplate={
+          downloadBulkMetadataTemplate
+        }
+
+        showMetadataModal={
+          showMetadataModal
+        }
+        form={
+          form
+        }
+        documentTypes={
+          documentTypes
+        }
+
+        setForm={
+          setForm
+        }
+        closeMetadataModal={
+          closeMetadataModal
+        }
+        handleMetadataSubmit={
+          handleMetadataSubmit
+        }
+
+        showUploadModal={
+          showUploadModal
+        }
+        selectedFile={
+          selectedFile
+        }
+        uploading={
+          uploading
+        }
+        uploadError={
+          uploadError
+        }
+        uploadedDocument={
+          uploadedDocument
+        }
+        uploadedAppraisal={
+          uploadedAppraisal
+        }
+
+        uploadFieldEntries={
+          uploadFieldEntries
+        }
+
+        appraisalMetadataForm={
+          appraisalMetadataForm
+        }
+        appraisalAdditionalMetadata={
+          appraisalAdditionalMetadata
+        }
+        appraisalCommittedAdditionalMetadata={
+          appraisalCommittedAdditionalMetadata
+        }
+        appraisalRequiredFieldsComplete={
+          appraisalRequiredFieldsComplete
+        }
+        appraisalDecisionLabel={
+          appraisalDecisionLabel
+        }
+        appraisalIsLinked={
+          appraisalIsLinked
+        }
+        matchedMetadata={
+          matchedMetadata
+        }
+        reviewingDecision={
+          reviewingDecision
+        }
+        reviewError={
+          reviewError
+        }
+
+        setAppraisalMetadataForm={
+          setAppraisalMetadataForm
+        }
+        setAppraisalAdditionalMetadata={
+          setAppraisalAdditionalMetadata
+        }
+        setAppraisalCommittedAdditionalMetadata={
+          setAppraisalCommittedAdditionalMetadata
+        }
+
+        handleFileChange={
+          handleFileChange
+        }
+        handleUpload={
+          handleUpload
+        }
+        handleAppraisalReview={
+          handleAppraisalReview
+        }
+        handleDoneAppraisal={
+          handleDoneAppraisal
+        }
+        handleCreateMetadataFromAppraisal={
+          handleCreateMetadataFromAppraisal
+        }
+        closeUploadModal={
+          closeUploadModal
+        }
+
+        modalRef={
+          modalRef
+        }
+        modalCloseButtonRef={
+          modalCloseButtonRef
+        }
+
+        StatusBadge={
+          StatusBadge
+        }
+        FormField={
+          FormField
+        }
+        formatFileSize={
+          formatFileSize
+        }
+        formatUploadFieldLabel={
+          formatUploadFieldLabel
+        }
+        formatUploadFieldValue={
+          formatUploadFieldValue
+        }
+      />
+    </main>
+  );

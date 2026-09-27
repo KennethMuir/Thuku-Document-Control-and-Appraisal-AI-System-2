@@ -1,0 +1,436 @@
+// ALL REACT STATE / EFFECT / MEMO / CALLBACK SOURCE
+//
+// EXACT SOURCE EXTRACTED FROM: src/app/page.tsx
+// This file is an extraction only. No source code was modified.
+
+// ============================================================
+// SOURCE BLOCK 1
+// ============================================================
+const [activePage, setActivePage] =
+    useState("Dashboard");
+
+// ============================================================
+// SOURCE BLOCK 2
+// ============================================================
+const [loggingOut, setLoggingOut] =
+    useState(false);
+
+// ============================================================
+// SOURCE BLOCK 3
+// ============================================================
+const [authLoading, setAuthLoading] =
+    useState(true);
+
+// ============================================================
+// SOURCE BLOCK 4
+// ============================================================
+const [authError, setAuthError] =
+    useState("");
+
+// ============================================================
+// SOURCE BLOCK 5
+// ============================================================
+const [
+    userManagementLoading,
+    setUserManagementLoading,
+  ] = useState(false);
+
+// ============================================================
+// SOURCE BLOCK 6
+// ============================================================
+const [
+    userManagementError,
+    setUserManagementError,
+  ] = useState("");
+
+// ============================================================
+// SOURCE BLOCK 7
+// ============================================================
+const [
+    showBulkMetadataModal,
+    setShowBulkMetadataModal,
+  ] = useState(false);
+
+// ============================================================
+// SOURCE BLOCK 8
+// ============================================================
+const [
+    bulkMetadataError,
+    setBulkMetadataError,
+  ] = useState("");
+
+// ============================================================
+// SOURCE BLOCK 9
+// ============================================================
+const [
+    bulkMetadataLoading,
+    setBulkMetadataLoading,
+  ] = useState(false);
+
+// ============================================================
+// SOURCE BLOCK 10
+// ============================================================
+const [
+    bulkMetadataImporting,
+    setBulkMetadataImporting,
+  ] = useState(false);
+
+// ============================================================
+// SOURCE BLOCK 11
+// ============================================================
+const [
+    departmentModalOpen,
+    setDepartmentModalOpen,
+  ] = useState(false);
+
+// ============================================================
+// SOURCE BLOCK 12
+// ============================================================
+const [
+    departmentForm,
+    setDepartmentForm,
+  ] = useState({
+    name: "",
+    code: "",
+    description: "",
+  });
+
+// ============================================================
+// SOURCE BLOCK 13
+// ============================================================
+const [
+    departmentMutationError,
+    setDepartmentMutationError,
+  ] = useState("");
+
+// ============================================================
+// SOURCE BLOCK 14
+// ============================================================
+const [
+    departmentSaving,
+    setDepartmentSaving,
+  ] = useState(false);
+
+// ============================================================
+// SOURCE BLOCK 15
+// ============================================================
+const [
+    domainRelationshipsLoading,
+    setDomainRelationshipsLoading,
+  ] = useState(false);
+
+// ============================================================
+// SOURCE BLOCK 16
+// ============================================================
+const [
+    domainRelationshipsError,
+    setDomainRelationshipsError,
+  ] = useState("");
+
+// ============================================================
+// SOURCE BLOCK 17
+// ============================================================
+const [loading, setLoading] =
+    useState(true);
+
+// ============================================================
+// SOURCE BLOCK 18
+// ============================================================
+const [
+    showMetadataModal,
+    setShowMetadataModal,
+  ] = useState(false);
+
+// ============================================================
+// SOURCE BLOCK 19
+// ============================================================
+const [
+    showUploadModal,
+    setShowUploadModal,
+  ] = useState(false);
+
+// ============================================================
+// SOURCE BLOCK 20
+// ============================================================
+const [uploading, setUploading] =
+    useState(false);
+
+// ============================================================
+// SOURCE BLOCK 21
+// ============================================================
+const [uploadError, setUploadError] =
+    useState("");
+
+// ============================================================
+// SOURCE BLOCK 22
+// ============================================================
+const [
+    isCreatingNewMetadata,
+    setIsCreatingNewMetadata,
+  ] = useState(false);
+
+// ============================================================
+// SOURCE BLOCK 23
+// ============================================================
+const [
+    appraisalMetadataForm,
+    setAppraisalMetadataForm,
+  ] = useState({
+    referenceCode: "",
+    title: "",
+    documentDate: "",
+    year: "",
+    personName: "",
+    departmentId: "",
+    documentTypeId: "",
+    section: "",
+    description: "",
+  });
+
+// ============================================================
+// SOURCE BLOCK 24
+// ============================================================
+const [
+    reviewingDecision,
+    setReviewingDecision,
+  ] = useState(false);
+
+// ============================================================
+// SOURCE BLOCK 25
+// ============================================================
+const [reviewError, setReviewError] =
+    useState("");
+
+// ============================================================
+// SOURCE BLOCK 26
+// ============================================================
+const [searchLoading, setSearchLoading] =
+    useState(false);
+
+// ============================================================
+// SOURCE BLOCK 27
+// ============================================================
+const [searchError, setSearchError] =
+    useState("");
+
+// ============================================================
+// SOURCE BLOCK 28
+// ============================================================
+const [searchTerm, setSearchTerm] =
+    useState("");
+
+// ============================================================
+// SOURCE BLOCK 29
+// ============================================================
+const [form, setForm] =
+    useState(EMPTY_FORM);
+
+// ============================================================
+// SOURCE BLOCK 30
+// ============================================================
+useEffect(() => {
+    uploadingRef.current = uploading;
+  }, [uploading]);
+
+// ============================================================
+// SOURCE BLOCK 31
+// ============================================================
+useEffect(() => {
+    let cancelled = false;
+
+    const verifySession =
+      async () => {
+        try {
+          setAuthError("");
+
+          const response =
+            await getCurrentUser();
+
+          const data =
+            await response.json();
+
+          if (cancelled) {
+            return;
+          }
+
+          if (
+            !response.ok ||
+            !data.success ||
+            !data.authenticated ||
+            !data.user
+          ) {
+            setAuthUser(null);
+
+            setAuthError(
+              data.error ||
+                "Your session has expired. Please sign in again."
+            );
+
+            return;
+          }
+
+          setAuthUser(data.user);
+        } catch (error) {
+          if (cancelled) {
+            return;
+          }
+
+          console.error(
+            "Session verification failed:",
+            error
+          );
+
+          setAuthUser(null);
+
+          setAuthError(
+            "Unable to verify your session. Please sign in again."
+          );
+        } finally {
+          if (!cancelled) {
+            setAuthLoading(false);
+          }
+        }
+      };
+
+    void verifySession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+// ============================================================
+// SOURCE BLOCK 32
+// ============================================================
+useEffect(() => {
+    void loadData();
+  }, []);
+
+// ============================================================
+// SOURCE BLOCK 33
+// ============================================================
+useEffect(() => {
+    if (authLoading) {
+      return;
+    }
+
+    if (!authUser) {
+      setSearchResults([]);
+      setSearchLoading(false);
+      setSearchError("");
+      return;
+    }
+
+    const query =
+      searchTerm.trim();
+
+    if (!query) {
+      setSearchResults([]);
+      setSearchLoading(false);
+      setSearchError("");
+      return;
+    }
+
+    let cancelled = false;
+
+    const timer =
+      window.setTimeout(
+        async () => {
+          try {
+            setSearchLoading(true);
+            setSearchError("");
+
+            const response =
+              await searchDocuments(
+                query
+              );
+
+            const data =
+              await response.json();
+
+            if (cancelled) {
+              return;
+            }
+
+            if (
+              !response.ok ||
+              !data.success
+            ) {
+              throw new Error(
+                data.error ||
+                  "Unable to search records."
+              );
+            }
+
+            setSearchResults(
+              Array.isArray(
+                data.results
+              )
+                ? data.results
+                : []
+            );
+          } catch (error) {
+            if (cancelled) {
+              return;
+            }
+
+            console.error(
+              "Search request failed:",
+              error
+            );
+
+            setSearchResults([]);
+
+            setSearchError(
+              error instanceof Error
+                ? error.message
+                : "Unable to search records."
+            );
+          } finally {
+            if (!cancelled) {
+              setSearchLoading(
+                false
+              );
+            }
+          }
+        },
+        300
+      );
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    searchTerm,
+    authLoading,
+    authUser,
+  ]);
+
+// ============================================================
+// SOURCE BLOCK 34
+// ============================================================
+useEffect(() => {
+    if (!authUser) {
+      return;
+    }
+
+    void loadDomainRelationshipDefinitions();
+  }, [authUser]);
+
+// ============================================================
+// SOURCE BLOCK 35
+// ============================================================
+useEffect(() => {
+    if (
+      activePage ===
+        "Settings" &&
+      authUser?.role ===
+        "ADMIN"
+    ) {
+      void loadUserManagementUsers();
+    }
+  }, [
+    activePage,
+    authUser?.role,
+  ]);

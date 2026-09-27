@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 import type {
   Dispatch,
   ReactElement,
@@ -150,7 +151,15 @@ export function MetadataRegistry({
           <p className="mt-1 text-sm text-slate-500">
             Browse the universal metadata catalogue and its field groups.
           </p>
-        </div>
+        </div>        <div className="flex shrink-0 flex-wrap gap-2">
+          <Link
+            href="/metadata/values"
+            className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+          >
+            Manage Values
+          </Link>
+
+
 
         <button
           type="button"
@@ -165,6 +174,7 @@ export function MetadataRegistry({
             ? "Hide Guide"
             : "Learn more"}
         </button>
+        </div>
       </div>
 
       {showUniversalMetadataGuide && (
@@ -787,6 +797,8 @@ export function MetadataRegistry({
     </>
   );
 }
+
+
 
 
 

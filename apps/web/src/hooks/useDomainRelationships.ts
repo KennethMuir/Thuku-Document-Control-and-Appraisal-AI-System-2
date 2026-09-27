@@ -48,6 +48,16 @@ export function useDomainRelationships(
   ] = useState<DomainRelationshipSelection[]>([]);
 
   const [
+    metadataDomainClassifications,
+    setMetadataDomainClassifications,
+  ] = useState<number[]>([]);
+
+  const [
+    appraisalDomainClassifications,
+    setAppraisalDomainClassifications,
+  ] = useState<number[]>([]);
+
+  const [
     domainRelationshipsLoading,
     setDomainRelationshipsLoading,
   ] = useState(false);
@@ -177,9 +187,11 @@ export function useDomainRelationships(
           }
 
           const rawDomains =
-            Array.isArray(domainsData.domains)
-              ? domainsData.domains
-              : [];
+            Array.isArray(domainsData.domain_registry)
+              ? domainsData.domain_registry
+              : Array.isArray(domainsData.domains)
+                ? domainsData.domains
+                : [];
 
           const normalizedDomains =
             rawDomains
@@ -639,6 +651,17 @@ export function useDomainRelationships(
       setDomainRelationshipsError("");
     }, []);
 
+  const clearMetadataDomainClassifications =
+    useCallback(() => {
+      setMetadataDomainClassifications([]);
+      setDomainRelationshipsError("");
+    }, []);
+
+  const clearAppraisalDomainClassifications =
+    useCallback(() => {
+      setAppraisalDomainClassifications([]);
+      setDomainRelationshipsError("");
+    }, []);
   useEffect(() => {
     if (!authUser) {
       return;
@@ -657,11 +680,17 @@ export function useDomainRelationships(
     metadataDomainRelationships,
     appraisalDomainRelationships,
 
+    metadataDomainClassifications,
+    appraisalDomainClassifications,
+
     domainRelationshipsLoading,
     domainRelationshipsError,
 
     setMetadataDomainRelationships,
     setAppraisalDomainRelationships,
+
+    setMetadataDomainClassifications,
+    setAppraisalDomainClassifications,
 
     loadDomainRelationshipDefinitions,
     loadMetadataDomainRelationships,
@@ -669,7 +698,13 @@ export function useDomainRelationships(
 
     clearMetadataDomainRelationships,
     clearAppraisalDomainRelationships,
+    clearMetadataDomainClassifications,
+    clearAppraisalDomainClassifications,
 
     setDomainRelationshipsError,
   };
 }
+
+
+
+

@@ -13,6 +13,7 @@ import { createHealthRouter } from "./health.js";
 import { createDashboardRouter } from "./dashboard.js";
 import { createMetadataRouter } from "./metadata.js";
 import { createDocumentsRouter } from "./documents.js";
+import { createDocumentDetailsRouter } from "./documentDetails.js";
 import { createDocumentsUploadRouter } from "./documentsUpload.js";
 import { createMetadataBulkRouter } from "./metadataBulk.js";
 import { createFieldRegistryRouter } from "./fieldRegistry.js";
@@ -80,6 +81,11 @@ export function registerRoutes(
       localFileStorage
     )
   );
+  app.use(
+    "/api/document-details",
+    createDocumentDetailsRouter(pool)
+  );
+
 
   app.use(
     "/api/metadata/bulk",
@@ -125,6 +131,7 @@ export function registerRoutes(
     )
   );
 }
+
 
 
 

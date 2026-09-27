@@ -69,6 +69,8 @@ type UseDocumentAppraisalOptions = {
   setDomainRelationshipsError: (
     value: string
   ) => void;
+
+  appraisalDomainClassifications: number[];
 };
 
 export function useDocumentAppraisal({
@@ -79,6 +81,7 @@ export function useDocumentAppraisal({
   loadMetadataDomainRelationships,
   saveMetadataDomainRelationships,
   setDomainRelationshipsError,
+  appraisalDomainClassifications,
 }: UseDocumentAppraisalOptions) {
   const [
     uploading,
@@ -723,9 +726,37 @@ export function useDocumentAppraisal({
           ) &&
           persistedMetadataId > 0
         ) {
+          const desiredDomainRelationships = [
+            ...appraisalDomainRelationships,
+          ];
+
+          for (const domainId of appraisalDomainClassifications) {
+            const numericDomainId = Number(domainId);
+
+            if (
+              !Number.isInteger(numericDomainId) ||
+              numericDomainId <= 0
+            ) {
+              continue;
+            }
+
+            if (
+              !desiredDomainRelationships.some(
+                (relationship) =>
+                  relationship.domainId === numericDomainId &&
+                  relationship.relationshipType === "SUBJECT"
+              )
+            ) {
+              desiredDomainRelationships.push({
+                domainId: numericDomainId,
+                relationshipType: "SUBJECT",
+              });
+            }
+          }
+
           await saveMetadataDomainRelationships(
             persistedMetadataId,
-            appraisalDomainRelationships
+            desiredDomainRelationships
           );
 
           await persistUniversalMetadataValues(
@@ -1008,3 +1039,5 @@ export function useDocumentAppraisal({
     buildAppraisalMetadata,
   };
 }
+
+

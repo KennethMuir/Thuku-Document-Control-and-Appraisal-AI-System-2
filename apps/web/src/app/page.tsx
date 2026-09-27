@@ -383,14 +383,20 @@ export default function Home() {
     domainRelationshipTypes,
     metadataDomainRelationships,
     appraisalDomainRelationships,
+    metadataDomainClassifications,
+    appraisalDomainClassifications,
     domainRelationshipsLoading,
     domainRelationshipsError,
     setMetadataDomainRelationships,
     setAppraisalDomainRelationships,
+    setMetadataDomainClassifications,
+    setAppraisalDomainClassifications,
     loadMetadataDomainRelationships,
     saveMetadataDomainRelationships,
     clearMetadataDomainRelationships,
     clearAppraisalDomainRelationships,
+    clearMetadataDomainClassifications,
+    clearAppraisalDomainClassifications,
     setDomainRelationshipsError,
   } = useDomainRelationships(
     authUser
@@ -560,7 +566,14 @@ export default function Home() {
     loadMetadataDomainRelationships,
     saveMetadataDomainRelationships,
     setDomainRelationshipsError,
+    appraisalDomainClassifications,
   });
+  const handleCloseUploadModal = async () => {
+    await closeUploadModal();
+    clearAppraisalDomainClassifications();
+    clearAppraisalDomainRelationships();
+  };
+
 
   /*
    *
@@ -770,6 +783,8 @@ export default function Home() {
     );
 
     clearMetadataDomainRelationships();
+    clearMetadataDomainClassifications();
+    clearAppraisalDomainClassifications();
     clearAppraisalDomainRelationships();
 
     setDomainRelationshipsError("");
@@ -872,9 +887,47 @@ export default function Home() {
          * Existing M23 domain relationship persistence.
          */
 
+        /*
+         * M25H:
+         * Merge Universal Classification selections into the
+         * existing domain relationship desired state.
+         *
+         * Classification is persisted as a SUBJECT relationship
+         * in the same metadata_domain_relationships table.
+         */
+        const desiredDomainRelationships = [
+          ...metadataDomainRelationships,
+        ];
+
+        for (const domainId of metadataDomainClassifications) {
+          const numericDomainId = Number(domainId);
+
+          if (
+            !Number.isInteger(numericDomainId) ||
+            numericDomainId <= 0
+          ) {
+            continue;
+          }
+
+          if (
+            !desiredDomainRelationships.some(
+              (relationship) =>
+                relationship.domainId ===
+                  numericDomainId &&
+                relationship.relationshipType ===
+                  "SUBJECT"
+            )
+          ) {
+            desiredDomainRelationships.push({
+              domainId: numericDomainId,
+              relationshipType: "SUBJECT",
+            });
+          }
+        }
+
         await saveMetadataDomainRelationships(
           metadataRecordId,
-          metadataDomainRelationships
+          desiredDomainRelationships
         );
 
         /*
@@ -909,6 +962,8 @@ export default function Home() {
       );
 
       clearMetadataDomainRelationships();
+      clearMetadataDomainClassifications();
+      clearAppraisalDomainClassifications();
       clearAppraisalDomainRelationships();
 
       closeMetadataModal();
@@ -1422,6 +1477,12 @@ export default function Home() {
         appraisalDomainRelationships={
           appraisalDomainRelationships
         }
+        metadataDomainClassifications={
+          metadataDomainClassifications
+        }
+        appraisalDomainClassifications={
+          appraisalDomainClassifications
+        }
         domainRelationshipsLoading={
           domainRelationshipsLoading
         }
@@ -1433,6 +1494,12 @@ export default function Home() {
         }
         setAppraisalDomainRelationships={
           setAppraisalDomainRelationships
+        }
+        setMetadataDomainClassifications={
+          setMetadataDomainClassifications
+        }
+        setAppraisalDomainClassifications={
+          setAppraisalDomainClassifications
         }
 
         departmentModalOpen={
@@ -1616,7 +1683,7 @@ export default function Home() {
           handleCreateMetadataFromAppraisal
         }
         closeUploadModal={
-          closeUploadModal
+          handleCloseUploadModal
         }
 
         modalRef={

@@ -1,3 +1,4 @@
+
 "use client";
 
 import {
@@ -141,36 +142,6 @@ function formatDataType(
     );
 }
 
-function getBoolean(
-  value: unknown
-): boolean | null {
-  if (
-    typeof value === "boolean"
-  ) {
-    return value;
-  }
-
-  if (
-    typeof value === "string"
-  ) {
-    if (
-      value.toLowerCase() ===
-      "true"
-    ) {
-      return true;
-    }
-
-    if (
-      value.toLowerCase() ===
-      "false"
-    ) {
-      return false;
-    }
-  }
-
-  return null;
-}
-
 function renderDefinitionValue(
   value: unknown
 ): string {
@@ -227,6 +198,9 @@ export default function MetadataValuesPage() {
     fieldRegistryError,
     saveValue,
     removeValue,
+    editingValueId,
+    editValue,
+    cancelEdit,
   } = useMetadataValues({
     authLoading,
     authUser,
@@ -411,10 +385,8 @@ export default function MetadataValuesPage() {
               (
                 value
               ) =>
-                value !==
-                  null &&
-                value !==
-                  undefined
+                value !== null &&
+                value !== undefined
             )
             .join(" ")
             .toLowerCase();
@@ -435,11 +407,11 @@ export default function MetadataValuesPage() {
 
   const isBoolean =
     fieldDataType ===
-      "boolean";
+    "boolean";
 
   const isJson =
     fieldDataType ===
-      "json";
+    "json";
 
   const isControlledVocabulary =
     fieldDataType ===
@@ -455,7 +427,7 @@ export default function MetadataValuesPage() {
 
   const isDate =
     fieldDataType ===
-      "date";
+    "date";
 
   const isDateTime =
     fieldDataType ===
@@ -467,6 +439,10 @@ export default function MetadataValuesPage() {
     Boolean(
       selectedField?.repeatable
     );
+
+  const selectedFieldIsReferenceCode =
+    selectedField?.field_key ===
+    "reference_code";
 
   const confidenceNumber =
     confidenceInput.trim() ===
@@ -498,6 +474,7 @@ export default function MetadataValuesPage() {
     Boolean(
       selectedFieldId
     ) &&
+    !selectedFieldIsReferenceCode &&
     valueRequired &&
     confidenceValid &&
     !saving;
@@ -522,6 +499,12 @@ export default function MetadataValuesPage() {
     }
 
     if (!selectedFieldId) {
+      return;
+    }
+
+    if (
+      selectedFieldIsReferenceCode
+    ) {
       return;
     }
 
@@ -633,15 +616,19 @@ export default function MetadataValuesPage() {
               <span>
                 Metadata Record
               </span>
+
               <span className="text-slate-400">
                 →
               </span>
+
               <span>
                 Field
               </span>
+
               <span className="text-slate-400">
                 →
               </span>
+
               <span>
                 Value
               </span>
@@ -744,10 +731,12 @@ export default function MetadataValuesPage() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                       Department
                     </p>
+
                     <p className="mt-1 text-sm font-medium text-slate-800">
                       {selectedMetadataRecord.department_name ||
                         "—"}
                     </p>
+
                     {selectedMetadataRecord.department_code && (
                       <p className="text-xs text-slate-500">
                         {
@@ -761,6 +750,7 @@ export default function MetadataValuesPage() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                       Document Type
                     </p>
+
                     <p className="mt-1 text-sm font-medium text-slate-800">
                       {selectedMetadataRecord.document_type_name ||
                         "—"}
@@ -771,6 +761,7 @@ export default function MetadataValuesPage() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                       Person / Subject
                     </p>
+
                     <p className="mt-1 text-sm font-medium text-slate-800">
                       {selectedMetadataRecord.person_name ||
                         "—"}
@@ -781,6 +772,7 @@ export default function MetadataValuesPage() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                       Year
                     </p>
+
                     <p className="mt-1 text-sm font-medium text-slate-800">
                       {selectedMetadataRecord.year ||
                         "—"}
@@ -791,6 +783,7 @@ export default function MetadataValuesPage() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                       Document Date
                     </p>
+
                     <p className="mt-1 text-sm font-medium text-slate-800">
                       {formatDate(
                         selectedMetadataRecord.document_date
@@ -802,10 +795,12 @@ export default function MetadataValuesPage() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                       Linked Document
                     </p>
+
                     <p className="mt-1 text-sm font-medium text-slate-800">
                       {selectedMetadataRecord.linked_document_code ||
                         "Not linked"}
                     </p>
+
                     {selectedMetadataRecord.linked_filename && (
                       <p className="truncate text-xs text-slate-500">
                         {
@@ -819,6 +814,7 @@ export default function MetadataValuesPage() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                       Created
                     </p>
+
                     <p className="mt-1 text-sm font-medium text-slate-800">
                       {formatDate(
                         selectedMetadataRecord.created_at
@@ -830,11 +826,13 @@ export default function MetadataValuesPage() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                       Internal Record ID
                     </p>
+
                     <p className="mt-1 font-mono text-sm font-medium text-slate-800">
                       {
                         selectedMetadataRecord.id
                       }
                     </p>
+
                     <p className="text-xs text-slate-500">
                       Used internally by the
                       system.
@@ -880,6 +878,7 @@ export default function MetadataValuesPage() {
                               <p className="text-xs font-semibold text-slate-500">
                                 {key}
                               </p>
+
                               <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-800">
                                 {formatValue(
                                   value
@@ -969,6 +968,7 @@ export default function MetadataValuesPage() {
                       <p className="text-sm font-medium text-slate-700">
                         No metadata records found.
                       </p>
+
                       <p className="mt-1 text-xs text-slate-500">
                         Try a different search
                         term.
@@ -1049,7 +1049,11 @@ export default function MetadataValuesPage() {
             </p>
 
             <h2 className="mt-1 text-lg font-semibold text-slate-900">
-              Add Metadata Value
+              {selectedFieldIsReferenceCode
+                ? "Reference Code"
+                : editingValueId !== null
+                  ? "Edit Metadata Value"
+                  : "Add Metadata Value"}
             </h2>
 
             <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
@@ -1105,9 +1109,7 @@ export default function MetadataValuesPage() {
                             .value
                         )
                       }
-                      disabled={
-                        fieldsLoading
-                      }
+                      disabled={fieldsLoading}
                       className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100 disabled:bg-slate-100"
                     >
                       <option value="">
@@ -1160,6 +1162,12 @@ export default function MetadataValuesPage() {
                               Sensitive
                             </span>
                           )}
+
+                          {selectedFieldIsReferenceCode && (
+                            <span className="rounded-full bg-slate-900 px-2.5 py-1 text-xs font-semibold text-white">
+                              System Controlled
+                            </span>
+                          )}
                         </div>
 
                         {selectedField.description && (
@@ -1193,6 +1201,7 @@ export default function MetadataValuesPage() {
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                                 Field Key
                               </p>
+
                               <p className="mt-1 font-mono text-xs text-slate-700">
                                 {
                                   selectedField.field_key
@@ -1204,6 +1213,7 @@ export default function MetadataValuesPage() {
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                                 Category
                               </p>
+
                               <p className="mt-1 text-xs text-slate-700">
                                 {renderDefinitionValue(
                                   selectedField.category
@@ -1215,6 +1225,7 @@ export default function MetadataValuesPage() {
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                                 Unit
                               </p>
+
                               <p className="mt-1 text-xs text-slate-700">
                                 {renderDefinitionValue(
                                   selectedField.unit
@@ -1226,6 +1237,7 @@ export default function MetadataValuesPage() {
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                                 Repeatable
                               </p>
+
                               <p className="mt-1 text-xs text-slate-700">
                                 {selectedField.repeatable
                                   ? "Yes"
@@ -1237,6 +1249,7 @@ export default function MetadataValuesPage() {
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                                 Searchable
                               </p>
+
                               <p className="mt-1 text-xs text-slate-700">
                                 {selectedField.searchable
                                   ? "Yes"
@@ -1248,6 +1261,7 @@ export default function MetadataValuesPage() {
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                                 Filterable
                               </p>
+
                               <p className="mt-1 text-xs text-slate-700">
                                 {selectedField.filterable
                                   ? "Yes"
@@ -1259,6 +1273,7 @@ export default function MetadataValuesPage() {
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                                 Sortable
                               </p>
+
                               <p className="mt-1 text-xs text-slate-700">
                                 {selectedField.sortable
                                   ? "Yes"
@@ -1270,6 +1285,7 @@ export default function MetadataValuesPage() {
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                                 AI Extractable
                               </p>
+
                               <p className="mt-1 text-xs text-slate-700">
                                 {selectedField.ai_extractable
                                   ? "Yes"
@@ -1281,6 +1297,7 @@ export default function MetadataValuesPage() {
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                                 User Editable
                               </p>
+
                               <p className="mt-1 text-xs text-slate-700">
                                 {selectedField.user_editable ===
                                 false
@@ -1293,6 +1310,7 @@ export default function MetadataValuesPage() {
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                                 Default Value
                               </p>
+
                               <p className="mt-1 whitespace-pre-wrap break-words text-xs text-slate-700">
                                 {renderDefinitionValue(
                                   selectedField.default_value
@@ -1304,6 +1322,7 @@ export default function MetadataValuesPage() {
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                                 Validation Rule
                               </p>
+
                               <p className="mt-1 whitespace-pre-wrap break-words text-xs text-slate-700">
                                 {renderDefinitionValue(
                                   selectedField.validation_rule
@@ -1315,6 +1334,7 @@ export default function MetadataValuesPage() {
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                                 Controlled Vocabulary
                               </p>
+
                               <p className="mt-1 whitespace-pre-wrap break-words text-xs text-slate-700">
                                 {renderDefinitionValue(
                                   selectedField.controlled_vocabulary
@@ -1326,6 +1346,7 @@ export default function MetadataValuesPage() {
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                                 Aliases
                               </p>
+
                               <p className="mt-1 whitespace-pre-wrap break-words text-xs text-slate-700">
                                 {renderDefinitionValue(
                                   selectedField.aliases
@@ -1338,64 +1359,91 @@ export default function MetadataValuesPage() {
                     )}
                   </label>
 
-                  <label className="block">
-                    <span className="mb-2 block text-sm font-semibold text-slate-700">
-                      Source
-                    </span>
+                  {!selectedFieldIsReferenceCode && (
+                    <label className="block">
+                      <span className="mb-2 block text-sm font-semibold text-slate-700">
+                        Source
+                      </span>
 
-                    <select
-                      value={source}
-                      onChange={(
-                        event
-                      ) =>
-                        setSource(
-                          event.target
-                            .value as
-                            | "USER"
-                            | "AI"
-                            | "SYSTEM"
-                            | "IMPORT"
-                            | "MIGRATION"
-                        )
-                      }
-                      className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
-                    >
-                      <option value="USER">
-                        USER — entered or
-                        corrected by a user
-                      </option>
-                      <option value="AI">
-                        AI — extracted or
-                        suggested by AI
-                      </option>
-                      <option value="SYSTEM">
-                        SYSTEM — generated by
-                        the application
-                      </option>
-                      <option value="IMPORT">
-                        IMPORT — imported from
-                        another source
-                      </option>
-                      <option value="MIGRATION">
-                        MIGRATION — migrated from
-                        an older system
-                      </option>
-                    </select>
+                      <select
+                        value={source}
+                        onChange={(
+                          event
+                        ) =>
+                          setSource(
+                            event.target
+                              .value as
+                              | "USER"
+                              | "AI"
+                              | "SYSTEM"
+                              | "IMPORT"
+                              | "MIGRATION"
+                          )
+                        }
+                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
+                      >
+                        <option value="USER">
+                          USER — entered or
+                          corrected by a user
+                        </option>
 
-                    <p className="mt-2 text-xs leading-5 text-slate-500">
-                      Source records where this
-                      value came from. It does not
-                      determine whether the value is
-                      trusted or verified.
-                    </p>
-                  </label>
+                        <option value="AI">
+                          AI — extracted or
+                          suggested by AI
+                        </option>
 
-                  <label className="block lg:col-span-2">
+                        <option value="SYSTEM">
+                          SYSTEM — generated by
+                          the application
+                        </option>
+
+                        <option value="IMPORT">
+                          IMPORT — imported from
+                          another source
+                        </option>
+
+                        <option value="MIGRATION">
+                          MIGRATION — migrated from
+                          an older system
+                        </option>
+                      </select>
+
+                      <p className="mt-2 text-xs leading-5 text-slate-500">
+                        Source records where this
+                        value came from. It does not
+                        determine whether the value is
+                        trusted or verified.
+                      </p>
+                    </label>
+                  )}
+
+                  <label
+                    className={
+                      selectedFieldIsReferenceCode
+                        ? "block lg:col-span-2"
+                        : "block lg:col-span-2"
+                    }
+                  >
                     <span className="mb-2 block text-sm font-semibold text-slate-700">
                       Value
                     </span>
 
-                    {isBoolean ? (
+                    {selectedFieldIsReferenceCode ? (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
+                        <p className="font-mono text-base font-semibold text-slate-900">
+                          {selectedMetadataRecord.reference_code ||
+                            "Reference Code has not been generated."}
+                        </p>
+
+                        <p className="mt-2 text-xs leading-5 text-slate-500">
+                          Reference Code is
+                          system-generated from the
+                          selected Department and
+                          cannot be manually entered
+                          or changed here.
+                        </p>
+                      </div>
+                    ) : isBoolean ? (
                       <select
                         value={
                           valueInput
@@ -1413,9 +1461,11 @@ export default function MetadataValuesPage() {
                         <option value="">
                           Select a value
                         </option>
+
                         <option value="true">
                           True
                         </option>
+
                         <option value="false">
                           False
                         </option>
@@ -1515,152 +1565,204 @@ export default function MetadataValuesPage() {
                       />
                     )}
 
-                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs text-slate-500">
-                        {selectedField
-                          ? `${formatDataType(
-                              selectedField.data_type
-                            )} value${
-                              selectedFieldIsRepeatable
-                                ? " · Multiple values are allowed"
-                                : ""
-                            }`
-                          : "Select a field to see the expected value type."}
-                      </p>
+                    {!selectedFieldIsReferenceCode && (
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs text-slate-500">
+                          {selectedField
+                            ? `${formatDataType(
+                                selectedField.data_type
+                              )} value${
+                                selectedFieldIsRepeatable
+                                  ? " · Multiple values are allowed"
+                                  : ""
+                              }`
+                            : "Select a field to see the expected value type."}
+                        </p>
 
-                      {selectedField?.unit && (
-                        <span className="text-xs font-medium text-slate-500">
-                          Unit:{" "}
-                          {
-                            selectedField.unit
-                          }
-                        </span>
-                      )}
-                    </div>
-                  </label>
-
-                  <label className="block">
-                    <span className="mb-2 block text-sm font-semibold text-slate-700">
-                      Confidence
-                    </span>
-
-                    <input
-                      type="number"
-                      min="0"
-                      max="1"
-                      step="0.0001"
-                      value={
-                        confidenceInput
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setConfidenceInput(
-                          event.target
-                            .value
-                        )
-                      }
-                      placeholder="0 to 1, e.g. 0.95"
-                      className={`w-full rounded-xl border px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-slate-100 ${
-                        confidenceValid
-                          ? "border-slate-300 focus:border-slate-500"
-                          : "border-red-300 focus:border-red-500"
-                      }`}
-                    />
-
-                    <p className="mt-2 text-xs text-slate-500">
-                      1.0000 means complete
-                      confidence. 0.0000 means no
-                      confidence.
-                    </p>
-
-                    {!confidenceValid && (
-                      <p className="mt-1 text-xs font-medium text-red-600">
-                        Confidence must be between
-                        0 and 1.
-                      </p>
+                        {selectedField?.unit && (
+                          <span className="text-xs font-medium text-slate-500">
+                            Unit:{" "}
+                            {
+                              selectedField.unit
+                            }
+                          </span>
+                        )}
+                      </div>
                     )}
                   </label>
 
-                  <label className="block">
-                    <span className="mb-2 block text-sm font-semibold text-slate-700">
-                      Verification Status
-                    </span>
+                  {!selectedFieldIsReferenceCode && (
+                    <>
+                      <label className="block">
+                        <span className="mb-2 block text-sm font-semibold text-slate-700">
+                          Confidence
+                        </span>
 
-                    <select
-                      value={
-                        verificationStatus
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setVerificationStatus(
-                          event.target
-                            .value as
-                            | "UNVERIFIED"
-                            | "VERIFIED"
-                            | "REJECTED"
-                        )
-                      }
-                      className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
-                    >
-                      <option value="UNVERIFIED">
-                        UNVERIFIED
-                      </option>
-                      <option value="VERIFIED">
-                        VERIFIED
-                      </option>
-                      <option value="REJECTED">
-                        REJECTED
-                      </option>
-                    </select>
+                        <input
+                          type="number"
+                          min="0"
+                          max="1"
+                          step="0.0001"
+                          value={
+                            confidenceInput
+                          }
+                          onChange={(
+                            event
+                          ) =>
+                            setConfidenceInput(
+                              event.target
+                                .value
+                            )
+                          }
+                          placeholder="0 to 1, e.g. 0.95"
+                          className={`w-full rounded-xl border px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-slate-100 ${
+                            confidenceValid
+                              ? "border-slate-300 focus:border-slate-500"
+                              : "border-red-300 focus:border-red-500"
+                          }`}
+                        />
 
-                    <p className="mt-2 text-xs text-slate-500">
-                      Verification is separate from
-                      the source and confidence.
-                    </p>
-                  </label>
+                        <p className="mt-2 text-xs text-slate-500">
+                          1.0000 means complete
+                          confidence. 0.0000 means no
+                          confidence.
+                        </p>
+
+                        {!confidenceValid && (
+                          <p className="mt-1 text-xs font-medium text-red-600">
+                            Confidence must be
+                            between 0 and 1.
+                          </p>
+                        )}
+                      </label>
+
+                      <label className="block">
+                        <span className="mb-2 block text-sm font-semibold text-slate-700">
+                          Verification Status
+                        </span>
+
+                        <select
+                          value={
+                            verificationStatus
+                          }
+                          onChange={(
+                            event
+                          ) =>
+                            setVerificationStatus(
+                              event.target
+                                .value as
+                                | "UNVERIFIED"
+                                | "VERIFIED"
+                                | "REJECTED"
+                            )
+                          }
+                          className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
+                        >
+                          <option value="UNVERIFIED">
+                            UNVERIFIED
+                          </option>
+
+                          <option value="VERIFIED">
+                            VERIFIED
+                          </option>
+
+                          <option value="REJECTED">
+                            REJECTED
+                          </option>
+                        </select>
+
+                        <p className="mt-2 text-xs text-slate-500">
+                          Verification is separate
+                          from the source and
+                          confidence.
+                        </p>
+                      </label>
+                    </>
+                  )}
                 </div>
 
-                <div className="mt-6 flex flex-col gap-3 border-t pt-5 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    {!selectedFieldId && (
-                      <p className="text-xs text-amber-700">
-                        Select a field before
-                        saving.
-                      </p>
-                    )}
-
-                    {selectedFieldId &&
-                      !valueRequired && (
+                {!selectedFieldIsReferenceCode && (
+                  <div className="mt-6 flex flex-col gap-3 border-t pt-5 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      {!selectedFieldId && (
                         <p className="text-xs text-amber-700">
-                          Enter a value before
+                          Select a field before
                           saving.
                         </p>
                       )}
 
-                    {selectedFieldIsRepeatable && (
-                      <p className="text-xs text-slate-500">
-                        This field is repeatable, so
-                        additional values can be
-                        registered separately.
-                      </p>
-                    )}
-                  </div>
+                      {selectedFieldId &&
+                        !valueRequired && (
+                          <p className="text-xs text-amber-700">
+                            Enter a value before
+                            saving.
+                          </p>
+                        )}
 
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void handleSave()
-                    }
-                    disabled={!canSave}
-                    className="rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {saving
-                      ? "Saving..."
-                      : "Add Metadata Value"}
-                  </button>
-                </div>
+                      {selectedFieldIsRepeatable && (
+                        <p className="text-xs text-slate-500">
+                          This field is repeatable,
+                          so additional values can
+                          be registered separately.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                      {editingValueId !== null && (
+                        <button
+                          type="button"
+                          onClick={
+                            cancelEdit
+                          }
+                          disabled={
+                            saving
+                          }
+                          className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Cancel Edit
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void handleSave()
+                        }
+                        disabled={
+                          !canSave
+                        }
+                        className="rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {saving
+                          ? editingValueId !==
+                            null
+                            ? "Updating..."
+                            : "Saving..."
+                          : editingValueId !==
+                            null
+                            ? "Update Metadata Value"
+                            : "Add Metadata Value"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {selectedFieldIsReferenceCode && (
+                  <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
+                    <p className="text-sm font-semibold text-slate-800">
+                      System-controlled field
+                    </p>
+
+                    <p className="mt-1 text-sm leading-6 text-slate-600">
+                      This value is generated from
+                      the metadata record&apos;s selected
+                      Department. It is not manually
+                      editable through Universal
+                      Metadata Values.
+                    </p>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -1742,21 +1844,27 @@ export default function MetadataValuesPage() {
                       <th className="px-4 py-3 font-semibold text-slate-700">
                         Field
                       </th>
+
                       <th className="px-4 py-3 font-semibold text-slate-700">
                         Value
                       </th>
+
                       <th className="px-4 py-3 font-semibold text-slate-700">
                         Type
                       </th>
+
                       <th className="px-4 py-3 font-semibold text-slate-700">
                         Source
                       </th>
+
                       <th className="px-4 py-3 font-semibold text-slate-700">
                         Confidence
                       </th>
+
                       <th className="px-4 py-3 font-semibold text-slate-700">
                         Verification
                       </th>
+
                       <th className="px-4 py-3 text-right font-semibold text-slate-700">
                         Action
                       </th>
@@ -1779,6 +1887,10 @@ export default function MetadataValuesPage() {
                               )
                           );
 
+                        const isReferenceCode =
+                          item.field_key ===
+                          "reference_code";
+
                         return (
                           <tr
                             key={
@@ -1793,18 +1905,31 @@ export default function MetadataValuesPage() {
                                 }
                               </div>
 
-                              <div className="mt-1 font-mono text-xs text-slate-500">
-                                {
-                                  item.field_key
-                                }
+                              <div className="mt-1 flex flex-wrap items-center gap-2">
+                                <span className="font-mono text-xs text-slate-500">
+                                  {
+                                    item.field_key
+                                  }
+                                </span>
+
+                                {isReferenceCode && (
+                                  <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-semibold text-white">
+                                    System Controlled
+                                  </span>
+                                )}
                               </div>
                             </td>
 
                             <td className="max-w-md px-4 py-4">
                               <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-5 text-slate-700">
-                                {formatValue(
-                                  item.value
-                                )}
+                                {isReferenceCode
+                                  ? selectedMetadataRecord.reference_code ||
+                                    formatValue(
+                                      item.value
+                                    )
+                                  : formatValue(
+                                      item.value
+                                    )}
                               </pre>
                             </td>
 
@@ -1852,24 +1977,49 @@ export default function MetadataValuesPage() {
                             </td>
 
                             <td className="px-4 py-4 text-right">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void removeValue(
+                              {isReferenceCode ? (
+                                <span className="text-xs font-medium text-slate-400">
+                                  System controlled
+                                </span>
+                              ) : (
+                                <div className="flex justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      editValue(
+                                        item
+                                      )
+                                    }
+                                    disabled={
+                                      saving ||
+                                      deletingId ===
+                                        item.id
+                                    }
+                                    className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    Edit
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void removeValue(
+                                        item.id
+                                      )
+                                    }
+                                    disabled={
+                                      deletingId ===
+                                      item.id
+                                    }
+                                    className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    {deletingId ===
                                     item.id
-                                  )
-                                }
-                                disabled={
-                                  deletingId ===
-                                  item.id
-                                }
-                                className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                {deletingId ===
-                                item.id
-                                  ? "Deleting..."
-                                  : "Delete"}
-                              </button>
+                                      ? "Deleting..."
+                                      : "Delete"}
+                                  </button>
+                                </div>
+                              )}
                             </td>
                           </tr>
                         );
@@ -1930,3 +2080,4 @@ export default function MetadataValuesPage() {
     </main>
   );
 }
+

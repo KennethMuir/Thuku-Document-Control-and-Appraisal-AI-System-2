@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "module": "nodenext",
+    "target": "esnext",
+    "types": [],
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "strict": true,
+    "jsx": "react-jsx",
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "noUncheckedSideEffectImports": true,
+    "moduleDetection": "force",
+    "skipLibCheck": true
+  },
+  "exclude": [
+    "src/**/*.before-*.ts",
+    "src/**/*.before-*.tsx",
+    "src/**/*.backup*.ts",
+    "src/**/*.backup*.tsx",
+    "src/**/*.bak.ts",
+    "src/**/*.bak.tsx",
+    "src/routes/m17-*",
+    "m17-exact-sources"
+  ]
+}
