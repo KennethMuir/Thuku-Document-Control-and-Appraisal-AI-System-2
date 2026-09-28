@@ -25,6 +25,10 @@ export interface FileStorageService {
   resolve(
     reference: string
   ): string;
+
+  delete(
+    reference: string
+  ): Promise<void>;
 }
 
 export class LocalFileStorage
@@ -74,5 +78,28 @@ export class LocalFileStorage
     reference: string
   ): string {
     return path.resolve(reference);
+  }
+
+  async delete(
+    reference: string
+  ): Promise<void> {
+    try {
+      await fs.unlink(
+        this.resolve(reference)
+      );
+    } catch (error) {
+      const code =
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error
+          ? error.code
+          : undefined;
+
+      if (code === "ENOENT") {
+        return;
+      }
+
+      throw error;
+    }
   }
 }

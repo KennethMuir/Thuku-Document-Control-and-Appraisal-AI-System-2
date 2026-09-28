@@ -95,3 +95,14 @@ export const reviewDocument = async (
     }
   );
 };
+
+export const deleteDocument = async (
+  documentId: number
+): Promise<Response> => {
+  return apiFetch(
+    `/api/document-deletion/${documentId}`,
+    {
+      method: "DELETE",
+    }
+  );
+};

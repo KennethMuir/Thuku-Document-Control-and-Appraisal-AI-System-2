@@ -96,7 +96,37 @@ router.get(
             d.code AS department_code,
 
             dt.id AS document_type_id,
-            dt.name AS document_type_name
+            dt.name AS document_type_name,
+
+            COALESCE(
+              (
+                SELECT json_agg(
+                  json_build_object(
+                    'domain_id', dr.id,
+                    'domain_key', dr.domain_key,
+                    'domain_name', dr.display_name,
+                    'domain_scope',
+                      CASE
+                        WHEN dr.organization_id IS NOT NULL
+                          THEN 'ORGANIZATION'
+                        WHEN COALESCE(
+                          (to_jsonb(dr) ->> 'specialization_id'),
+                          ''
+                        ) <> ''
+                          THEN 'SPECIALIZED'
+                        ELSE 'UNIVERSAL'
+                      END
+                  )
+                  ORDER BY dr.display_name
+                )
+                FROM metadata_domain_relationships mdr
+                INNER JOIN domain_registry dr
+                  ON dr.id = mdr.domain_id
+                WHERE mdr.metadata_record_id =
+                      doc.metadata_record_id
+              ),
+              '[]'::json
+            ) AS domain_classifications
 
           FROM documents doc
 

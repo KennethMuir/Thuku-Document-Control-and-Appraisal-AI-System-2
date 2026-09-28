@@ -758,16 +758,13 @@ export default function Home() {
    */
 
   useEffect(() => {
-    void loadData();
-  }, []);
+    if (authLoading || !authUser) {
+      return;
+    }
 
-  /*
-   *
-   * =============================================================
-   * METADATA MODAL
-   * =============================================================
-   *
-   */
+    void loadData();
+  }, [authLoading, authUser]);
+
 
   const closeMetadataModal = () => {
     setShowMetadataModal(false);
@@ -1321,6 +1318,9 @@ export default function Home() {
             {activePage ===
               "Documents" && (
               <Documents
+                setActivePage={
+                  setActivePage
+                }
                 documents={
                   documents
                 }
@@ -1333,9 +1333,15 @@ export default function Home() {
                 dashboardDocumentFilter={
                   dashboardDocumentFilter
                 }
+                onDocumentsChanged={
+                  loadData
+                }
                 canManageDocuments={
                   canManageDocuments
                 }
+                 canManageDomains={
+                   canManageDomains
+                 }
                 loading={
                   loading
                 }
@@ -1712,3 +1718,4 @@ export default function Home() {
     </main>
   );
 }
+

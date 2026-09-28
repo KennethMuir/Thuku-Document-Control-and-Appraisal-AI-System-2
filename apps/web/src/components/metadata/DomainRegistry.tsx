@@ -440,15 +440,6 @@ export function DomainRegistry({
             </p>
           </div>
 
-          {canManageDomains && (
-            <button
-              type="button"
-              onClick={beginCreate}
-              className="rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
-            >
-              Add Domain
-            </button>
-          )}
         </div>
 
         {state.loading && (
@@ -510,6 +501,28 @@ export function DomainRegistry({
                   </p>
                 </div>
               </div>
+
+              <div className="mb-5 flex flex-col gap-3 rounded-xl border border-violet-200 bg-violet-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-bold text-slate-900">
+                    Organization domains
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">
+                    Create and manage private domain classifications for this organization. System domains are protected.
+                  </p>
+                </div>
+
+                {canManageDomains && (
+                  <button
+                    type="button"
+                    onClick={beginCreate}
+                    className="shrink-0 rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  >
+                    Add Organization Domain
+                  </button>
+                )}
+              </div>
+
 
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">

@@ -4,7 +4,7 @@ import type { Pool } from "pg";
 import {
   getAvailableDomainByKey,
   getAvailableDomainById,
-} from "../services/domainAvailability";
+} from "../services/domainAvailability.js";
 
 import {
   requireAuthentication,
@@ -77,6 +77,9 @@ const RELATIONSHIP_TYPES = [
   "PRESERVATION",
   "DISPOSITION",
 ];
+
+type RelationshipType =
+  (typeof RELATIONSHIP_TYPES)[number];
 
 export function createDomainRelationshipsRouter(
   pool: Pool

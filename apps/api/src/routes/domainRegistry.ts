@@ -4,7 +4,7 @@ import type { Pool } from "pg";
 import {
   getAvailableDomainByKey,
   getAvailableDomains,
-} from "../services/domainAvailability";
+} from "../services/domainAvailability.js";
 
 import {
   requireAuthentication,
@@ -118,7 +118,7 @@ export function createDomainRegistryRouter(pool: Pool) {
         return;
       }
 
-      const domainKey = req.params.domain_key;
+      const domainKey = String(req.params.domain_key);
 
       try {
         const domain = await getAvailableDomainByKey(
