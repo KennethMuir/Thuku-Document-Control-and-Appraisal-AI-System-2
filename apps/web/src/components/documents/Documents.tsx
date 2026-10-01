@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   useMemo,
   useState,
@@ -20,6 +21,7 @@ import { useDocumentDetails } from "@/hooks/useDocumentDetails";
 
 import DocumentDetails from "./DocumentDetails";
 import DocumentActionsMenu from "./DocumentActionsMenu";
+import { UniversalMetadataGuide } from "@/components/metadata/UniversalMetadataGuide";
 
 type DocumentDomainScope =
   | "UNIVERSAL"
@@ -180,6 +182,10 @@ export function Documents({
     openDocumentDetails,
     closeDocumentDetails,
   } = useDocumentDetails();
+  const [
+    showUniversalMetadataGuide,
+    setShowUniversalMetadataGuide,
+  ] = useState(false);
 
   const documentsForDomainTabs =
     useMemo(() => {
@@ -371,7 +377,7 @@ export function Documents({
           </td>
 
           <td className="px-5 py-5">
-            <div className="flex items-center justify-end gap-3">
+<div className="flex items-center justify-end gap-3">
               <div className="hidden items-center gap-1 text-xs text-slate-500 md:flex">
                 {universalCount >
                   0 && (
@@ -510,19 +516,65 @@ export function Documents({
           </button>
         </div>
 
-        {canManageDocuments && (
-          <button
-            type="button"
-            onClick={() =>
-              setShowUploadModal(
-                true
-              )
-            }
-            className="mt-6 rounded-xl bg-white px-5 py-3 text-sm font-bold text-slate-900 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-slate-900"
-          >
-            + Upload Document
-          </button>
-        )}
+        <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+  <div className="flex flex-col gap-3 rounded-2xl border border-slate-700 bg-slate-900/70 p-5 md:flex-row md:items-center md:justify-between md:flex-1">
+    <div>
+      <p className="text-sm font-semibold text-white">
+        Universal Metadata
+      </p>
+      <p className="mt-1 text-sm text-slate-300">
+        Browse the universal metadata catalogue and its field groups.
+      </p>
+    </div>
+
+    <div className="flex shrink-0 flex-wrap gap-2">
+      <Link
+        href="/metadata/values"
+        className="rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+      >
+        Manage Values
+      </Link>
+
+      <button
+        type="button"
+        onClick={() =>
+          setShowUniversalMetadataGuide(
+            (current) => !current
+          )
+        }
+        className="rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+      >
+        {showUniversalMetadataGuide
+          ? "Hide Guide"
+          : "Learn more"}
+      </button>
+    </div>
+  </div>
+
+  {canManageDocuments && (
+    <button
+      type="button"
+      onClick={() =>
+        setShowUploadModal(
+          true
+        )
+      }
+      className="shrink-0 rounded-xl bg-white px-5 py-3 text-sm font-bold text-slate-900 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-slate-900"
+    >
+      + Upload Document
+    </button>
+  )}
+</div>
+
+{showUniversalMetadataGuide && (
+  <div className="mt-4">
+    <UniversalMetadataGuide
+      onClose={() =>
+        setShowUniversalMetadataGuide(false)
+      }
+    />
+  </div>
+)}
       </div>
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -705,6 +757,12 @@ export function Documents({
     </>
   );
 }
+
+
+
+
+
+
 
 
 
