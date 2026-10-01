@@ -96,19 +96,6 @@ export function Sidebar({
               }
             />
 
-            <NavItem
-              active={
-                activePage ===
-                "Domain Registry"
-              }
-              icon="◎"
-              label="Domains"
-              onClick={() =>
-                setActivePage(
-                  "Domain Registry"
-                )
-              }
-            />
 
             <NavItem
               active={

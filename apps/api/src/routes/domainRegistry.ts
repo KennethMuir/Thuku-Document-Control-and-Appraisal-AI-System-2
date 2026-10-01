@@ -67,6 +67,41 @@ export function createDomainRegistryRouter(pool: Pool) {
     "Business Operations",
   ];
 
+  /**
+   * Converts user-entered domain keys into the canonical stored form.
+   *
+   * Examples:
+   *   "Aviation_Safety" -> "aviation_safety"
+   *   "AVIATION SAFETY" -> "aviation_safety"
+   *   "Aviation Safety" -> "aviation_safety"
+   *   "Risk Management" -> "risk_management"
+   *
+   * Unsupported punctuation is not silently removed. It remains in the
+   * normalized value and is rejected by the canonical key validation.
+   */
+  const normalizeDomainKey = (
+    value: unknown
+  ): string => {
+    if (typeof value !== "string") {
+      return "";
+    }
+
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "_");
+  };
+
+  const isValidDomainKey = (
+    domainKey: string
+  ): boolean => {
+    return (
+      domainKey.length > 0 &&
+      domainKey.length <= 100 &&
+      /^[a-z][a-z0-9_]*$/.test(domainKey)
+    );
+  };
+
   // ------------------------------------------------------------
   // 2. LIST DOMAIN DEFINITIONS
   // ------------------------------------------------------------
@@ -93,11 +128,15 @@ export function createDomainRegistryRouter(pool: Pool) {
           domain_registry: domains,
         });
       } catch (error) {
-        console.error("Domain registry query failed:", error);
+        console.error(
+          "Domain registry query failed:",
+          error
+        );
 
         res.status(500).json({
           success: false,
-          error: "Unable to retrieve domain definitions",
+          error:
+            "Unable to retrieve domain definitions",
         });
       }
     }
@@ -118,7 +157,27 @@ export function createDomainRegistryRouter(pool: Pool) {
         return;
       }
 
-      const domainKey = String(req.params.domain_key);
+      const domainKey =
+        normalizeDomainKey(req.params.domain_key);
+
+      if (!domainKey) {
+        res.status(400).json({
+          success: false,
+          error: "A domain_key is required.",
+        });
+
+        return;
+      }
+
+      if (!isValidDomainKey(domainKey)) {
+        res.status(400).json({
+          success: false,
+          error:
+            "Invalid domain_key. Domain keys may contain letters, numbers, spaces, and underscores, and must begin with a letter.",
+        });
+
+        return;
+      }
 
       try {
         const domain = await getAvailableDomainByKey(
@@ -132,6 +191,7 @@ export function createDomainRegistryRouter(pool: Pool) {
             success: false,
             error: "Domain definition not found.",
           });
+
           return;
         }
 
@@ -140,11 +200,15 @@ export function createDomainRegistryRouter(pool: Pool) {
           domain_definition: domain,
         });
       } catch (error) {
-        console.error("Domain definition query failed:", error);
+        console.error(
+          "Domain definition query failed:",
+          error
+        );
 
         res.status(500).json({
           success: false,
-          error: "Unable to retrieve domain definition",
+          error:
+            "Unable to retrieve domain definition",
         });
       }
     }
@@ -174,40 +238,66 @@ export function createDomainRegistryRouter(pool: Pool) {
         aliases,
       } = req.body;
 
-      if (!domain_key || !display_name || !domain_family) {
+      if (
+        typeof display_name !== "string" ||
+        display_name.trim() === "" ||
+        typeof domain_family !== "string" ||
+        domain_family.trim() === ""
+      ) {
         res.status(400).json({
           success: false,
           error:
             "domain_key, display_name, and domain_family are required.",
         });
+
         return;
       }
 
-      if (
-        typeof domain_key !== "string" ||
-        !/^[a-z][a-z0-9_]*$/.test(domain_key)
-      ) {
+      const normalizedDomainKey =
+        normalizeDomainKey(domain_key);
+
+      if (!normalizedDomainKey) {
+        res.status(400).json({
+          success: false,
+          error: "Domain Key is required.",
+        });
+
+        return;
+      }
+
+      if (normalizedDomainKey.length > 100) {
         res.status(400).json({
           success: false,
           error:
-            "domain_key must contain lowercase letters, numbers, and underscores, and must start with a lowercase letter.",
+            "Domain Key must not exceed 100 characters after normalization.",
         });
+
         return;
       }
 
-      if (domain_key.length > 100) {
+      if (!isValidDomainKey(normalizedDomainKey)) {
         res.status(400).json({
           success: false,
-          error: "domain_key must not exceed 100 characters.",
+          error:
+            "Domain Key may contain letters, numbers, spaces, and underscores, and must begin with a letter.",
         });
+
         return;
       }
 
-      if (!validDomainFamilies.includes(domain_family)) {
+      const trimmedDisplayName =
+        display_name.trim();
+
+      if (
+        !validDomainFamilies.includes(
+          domain_family
+        )
+      ) {
         res.status(400).json({
           success: false,
           error: "Invalid domain_family.",
         });
+
         return;
       }
 
@@ -221,7 +311,10 @@ export function createDomainRegistryRouter(pool: Pool) {
               AND organization_id = $2
             LIMIT 1
           `,
-          [domain_key, organizationId]
+          [
+            normalizedDomainKey,
+            organizationId,
+          ]
         );
 
         if (existing.rows.length > 0) {
@@ -230,20 +323,22 @@ export function createDomainRegistryRouter(pool: Pool) {
             error:
               "A domain definition with this key already exists in your organization.",
           });
+
           return;
         }
 
-        const systemExisting = await pool.query(
-          `
-            SELECT id
-            FROM domain_registry
-            WHERE
-              domain_key = $1
-              AND organization_id IS NULL
-            LIMIT 1
-          `,
-          [domain_key]
-        );
+        const systemExisting =
+          await pool.query(
+            `
+              SELECT id
+              FROM domain_registry
+              WHERE
+                domain_key = $1
+                AND organization_id IS NULL
+              LIMIT 1
+            `,
+            [normalizedDomainKey]
+          );
 
         if (systemExisting.rows.length > 0) {
           res.status(409).json({
@@ -251,6 +346,7 @@ export function createDomainRegistryRouter(pool: Pool) {
             error:
               "A system domain with this key already exists. Organization-defined domains cannot override system domains.",
           });
+
           return;
         }
 
@@ -297,8 +393,8 @@ export function createDomainRegistryRouter(pool: Pool) {
               updated_at
           `,
           [
-            domain_key,
-            display_name,
+            normalizedDomainKey,
+            trimmedDisplayName,
             description ?? null,
             domain_family,
             aliases ?? [],
@@ -308,17 +404,53 @@ export function createDomainRegistryRouter(pool: Pool) {
 
         res.status(201).json({
           success: true,
-          domain_definition: result.rows[0],
+          domain_definition:
+            result.rows[0],
         });
-      } catch (error: any) {
-        console.error("Domain creation failed:", error);
+      } catch (error: unknown) {
+        console.error(
+          "Domain creation failed:",
+          error
+        );
+
+        const databaseError =
+          error as {
+            code?: string;
+            message?: string;
+          };
+
+        if (
+          databaseError.code === "23505"
+        ) {
+          res.status(409).json({
+            success: false,
+            error:
+              "A domain definition with this key already exists.",
+          });
+
+          return;
+        }
+
+        if (
+          databaseError.code === "23514"
+        ) {
+          res.status(400).json({
+            success: false,
+            error:
+              "The domain definition violates the domain registry rules.",
+          });
+
+          return;
+        }
 
         res.status(500).json({
           success: false,
-          error: "Unable to create domain definition",
+          error:
+            "Unable to create domain definition",
           details:
-            process.env.NODE_ENV === "development"
-              ? error.message
+            process.env.NODE_ENV ===
+            "development"
+              ? databaseError.message
               : undefined,
         });
       }
@@ -335,13 +467,37 @@ export function createDomainRegistryRouter(pool: Pool) {
     requireOrganizationContext(pool),
     requireRole("ADMIN", "OWNER"),
     async (req: Request, res: Response) => {
-      const organizationId = getOrganizationId(req, res);
+      const organizationId =
+        getOrganizationId(req, res);
 
       if (organizationId === null) {
         return;
       }
 
-      const domainKey = req.params.domain_key;
+      const domainKey =
+        normalizeDomainKey(
+          req.params.domain_key
+        );
+
+      if (!domainKey) {
+        res.status(400).json({
+          success: false,
+          error:
+            "A domain_key is required.",
+        });
+
+        return;
+      }
+
+      if (!isValidDomainKey(domainKey)) {
+        res.status(400).json({
+          success: false,
+          error:
+            "Invalid domain_key.",
+        });
+
+        return;
+      }
 
       const {
         display_name,
@@ -352,56 +508,74 @@ export function createDomainRegistryRouter(pool: Pool) {
 
       if (
         domain_family !== undefined &&
-        !validDomainFamilies.includes(domain_family)
+        !validDomainFamilies.includes(
+          domain_family
+        )
       ) {
         res.status(400).json({
           success: false,
           error: "Invalid domain_family.",
         });
+
         return;
       }
 
       try {
-        const domainCheck = await pool.query(
-          `
-            SELECT
-              id,
-              organization_id,
-              domain_scope,
-              specialization_id,
-              is_active
-            FROM domain_registry
-            WHERE domain_key = $1
-            LIMIT 1
-          `,
-          [domainKey]
-        );
+        const domainCheck =
+          await pool.query(
+            `
+              SELECT
+                id,
+                organization_id,
+                domain_scope,
+                specialization_id,
+                is_active
+              FROM domain_registry
+              WHERE
+                domain_key = $1
+              LIMIT 1
+            `,
+            [domainKey]
+          );
 
-        if (domainCheck.rows.length === 0) {
+        if (
+          domainCheck.rows.length === 0
+        ) {
           res.status(404).json({
             success: false,
-            error: "Domain definition not found.",
+            error:
+              "Domain definition not found.",
           });
+
           return;
         }
 
-        const dbDomain = domainCheck.rows[0];
+        const dbDomain =
+          domainCheck.rows[0];
 
-        if (dbDomain.domain_scope !== "ORGANIZATION") {
+        if (
+          dbDomain.domain_scope !==
+          "ORGANIZATION"
+        ) {
           res.status(403).json({
             success: false,
             error:
               "System-controlled domains cannot be modified by an organization.",
           });
+
           return;
         }
 
-        if (dbDomain.organization_id !== organizationId) {
+        if (
+          dbDomain.organization_id !==
+          organizationId
+        ) {
           res.status(403).json({
             success: false,
             error:
               "Domain definition does not belong to your organization.",
           });
+
           return;
         }
 
@@ -417,35 +591,63 @@ export function createDomainRegistryRouter(pool: Pool) {
           if (value !== undefined) {
             setClauses.push(
               `${column} = $${parameterIndex}${
-                cast ? `::${cast}` : ""
+                cast
+                  ? `::${cast}`
+                  : ""
               }`
             );
+
             values.push(value);
             parameterIndex++;
           }
         };
 
-        addValue("display_name", display_name);
-        addValue("description", description);
-        addValue("domain_family", domain_family);
-        addValue("aliases", aliases, "jsonb");
+        addValue(
+          "display_name",
+          display_name
+        );
+
+        addValue(
+          "description",
+          description
+        );
+
+        addValue(
+          "domain_family",
+          domain_family
+        );
+
+        addValue(
+          "aliases",
+          aliases,
+          "jsonb"
+        );
 
         if (setClauses.length === 0) {
           res.status(400).json({
             success: false,
-            error: "No fields to update.",
+            error:
+              "No fields to update.",
           });
+
           return;
         }
 
-        setClauses.push("updated_at = NOW()");
+        setClauses.push(
+          "updated_at = NOW()"
+        );
 
         values.push(domainKey);
-        const domainKeyParameter = parameterIndex;
+
+        const domainKeyParameter =
+          parameterIndex;
+
         parameterIndex++;
 
         values.push(organizationId);
-        const organizationParameter = parameterIndex;
+
+        const organizationParameter =
+          parameterIndex;
 
         const query = `
           UPDATE domain_registry
@@ -469,30 +671,62 @@ export function createDomainRegistryRouter(pool: Pool) {
             updated_at
         `;
 
-        const result = await pool.query(query, values);
+        const result =
+          await pool.query(
+            query,
+            values
+          );
 
-        if (result.rows.length === 0) {
+        if (
+          result.rows.length === 0
+        ) {
           res.status(404).json({
             success: false,
             error:
               "Domain definition not found or does not belong to your organization.",
           });
+
           return;
         }
 
         res.json({
           success: true,
-          domain_definition: result.rows[0],
+          domain_definition:
+            result.rows[0],
         });
-      } catch (error: any) {
-        console.error("Domain update failed:", error);
+      } catch (error: unknown) {
+        console.error(
+          "Domain update failed:",
+          error
+        );
+
+        const databaseError =
+          error as {
+            code?: string;
+            message?: string;
+          };
+
+        if (
+          databaseError.code ===
+          "23514"
+        ) {
+          res.status(400).json({
+            success: false,
+            error:
+              "The domain definition violates the domain registry rules.",
+          });
+
+          return;
+        }
 
         res.status(500).json({
           success: false,
-          error: "Unable to update domain definition",
+          error:
+            "Unable to update domain definition",
           details:
-            process.env.NODE_ENV === "development"
-              ? error.message
+            process.env.NODE_ENV ===
+            "development"
+              ? databaseError.message
               : undefined,
         });
       }
@@ -509,108 +743,163 @@ export function createDomainRegistryRouter(pool: Pool) {
     requireOrganizationContext(pool),
     requireRole("ADMIN", "OWNER"),
     async (req: Request, res: Response) => {
-      const organizationId = getOrganizationId(req, res);
+      const organizationId =
+        getOrganizationId(req, res);
 
       if (organizationId === null) {
         return;
       }
 
-      const domainKey = req.params.domain_key;
-
-      try {
-        const domainCheck = await pool.query(
-          `
-            SELECT
-              id,
-              organization_id,
-              domain_scope,
-              is_active
-            FROM domain_registry
-            WHERE domain_key = $1
-            ORDER BY
-              CASE
-                WHEN organization_id IS NULL THEN 0
-                ELSE 1
-              END
-            LIMIT 1
-          `,
-          [domainKey]
+      const domainKey =
+        normalizeDomainKey(
+          req.params.domain_key
         );
 
-        if (domainCheck.rows.length === 0) {
+      if (!domainKey) {
+        res.status(400).json({
+          success: false,
+          error:
+            "A domain_key is required.",
+        });
+
+        return;
+      }
+
+      if (!isValidDomainKey(domainKey)) {
+        res.status(400).json({
+          success: false,
+          error:
+            "Invalid domain_key.",
+        });
+
+        return;
+      }
+
+      try {
+        const domainCheck =
+          await pool.query(
+            `
+              SELECT
+                id,
+                organization_id,
+                domain_scope,
+                is_active
+              FROM domain_registry
+              WHERE
+                domain_key = $1
+              ORDER BY
+                CASE
+                  WHEN organization_id IS NULL
+                    THEN 0
+                  ELSE 1
+                END
+              LIMIT 1
+            `,
+            [domainKey]
+          );
+
+        if (
+          domainCheck.rows.length ===
+          0
+        ) {
           res.status(404).json({
             success: false,
-            error: "Domain definition not found.",
+            error:
+              "Domain definition not found.",
           });
+
           return;
         }
 
-        const dbDomain = domainCheck.rows[0];
+        const dbDomain =
+          domainCheck.rows[0];
 
-        if (dbDomain.domain_scope !== "ORGANIZATION") {
+        if (
+          dbDomain.domain_scope !==
+          "ORGANIZATION"
+        ) {
           res.status(403).json({
             success: false,
-            error: "System-controlled domains cannot be enabled by an organization.",
+            error:
+              "System-controlled domains cannot be enabled by an organization.",
           });
+
           return;
         }
 
-        if (dbDomain.organization_id !== organizationId) {
+        if (
+          dbDomain.organization_id !==
+          organizationId
+        ) {
           res.status(403).json({
             success: false,
             error:
               "Domain definition does not belong to your organization.",
           });
+
           return;
         }
 
-        const result = await pool.query(
-          `
-            UPDATE domain_registry
-            SET
-              is_active = TRUE,
-              updated_at = NOW()
-            WHERE
-              domain_key = $1
-              AND organization_id = $2
-              AND domain_scope = 'ORGANIZATION'
-              AND is_active = FALSE
-            RETURNING
-              id,
-              domain_key,
-              display_name,
-              domain_scope,
-              organization_id,
-              specialization_id,
-              is_active,
-              updated_at
-          `,
-          [domainKey, organizationId]
-        );
+        const result =
+          await pool.query(
+            `
+              UPDATE domain_registry
+              SET
+                is_active = TRUE,
+                updated_at = NOW()
+              WHERE
+                domain_key = $1
+                AND organization_id = $2
+                AND domain_scope = 'ORGANIZATION'
+                AND is_active = FALSE
+              RETURNING
+                id,
+                domain_key,
+                display_name,
+                domain_scope,
+                organization_id,
+                specialization_id,
+                is_active,
+                updated_at
+            `,
+            [
+              domainKey,
+              organizationId,
+            ]
+          );
 
-        if (result.rows.length === 0) {
+        if (
+          result.rows.length === 0
+        ) {
           res.json({
             success: true,
             domain_definition: {
               ...dbDomain,
-              message: dbDomain.is_active
-                ? "already active"
-                : "could not be enabled",
+              message:
+                dbDomain.is_active
+                  ? "already active"
+                  : "could not be enabled",
             },
           });
+
           return;
         }
 
         res.json({
           success: true,
-          domain_definition: result.rows[0],
+          domain_definition:
+            result.rows[0],
         });
       } catch (error) {
-        console.error("Domain enable failed:", error);
+        console.error(
+          "Domain enable failed:",
+          error
+        );
 
         res.status(500).json({
           success: false,
-          error: "Unable to enable domain definition",
+          error:
+            "Unable to enable domain definition",
         });
       }
     }
@@ -626,103 +915,171 @@ export function createDomainRegistryRouter(pool: Pool) {
     requireOrganizationContext(pool),
     requireRole("ADMIN", "OWNER"),
     async (req: Request, res: Response) => {
-      const organizationId = getOrganizationId(req, res);
+      const organizationId =
+        getOrganizationId(req, res);
 
       if (organizationId === null) {
         return;
       }
 
-      const domainKey = req.params.domain_key;
-
-      try {
-        const domainCheck = await pool.query(
-          `
-            SELECT
-              id,
-              organization_id,
-              is_active
-            FROM domain_registry
-            WHERE domain_key = $1
-            ORDER BY
-              CASE
-                WHEN organization_id IS NULL THEN 0
-                ELSE 1
-              END
-            LIMIT 1
-          `,
-          [domainKey]
+      const domainKey =
+        normalizeDomainKey(
+          req.params.domain_key
         );
 
-        if (domainCheck.rows.length === 0) {
+      if (!domainKey) {
+        res.status(400).json({
+          success: false,
+          error:
+            "A domain_key is required.",
+        });
+
+        return;
+      }
+
+      if (!isValidDomainKey(domainKey)) {
+        res.status(400).json({
+          success: false,
+          error:
+            "Invalid domain_key.",
+        });
+
+        return;
+      }
+
+      try {
+        const domainCheck =
+          await pool.query(
+            `
+              SELECT
+                id,
+                organization_id,
+                domain_scope,
+                is_active
+              FROM domain_registry
+              WHERE
+                domain_key = $1
+              ORDER BY
+                CASE
+                  WHEN organization_id IS NULL
+                    THEN 0
+                  ELSE 1
+                END
+              LIMIT 1
+            `,
+            [domainKey]
+          );
+
+        if (
+          domainCheck.rows.length ===
+          0
+        ) {
           res.status(404).json({
             success: false,
-            error: "Domain definition not found.",
+            error:
+              "Domain definition not found.",
           });
+
           return;
         }
 
-        const dbDomain = domainCheck.rows[0];
+        const dbDomain =
+          domainCheck.rows[0];
 
-        if (dbDomain.organization_id === null) {
+        if (
+          dbDomain.organization_id ===
+          null
+        ) {
           res.status(403).json({
             success: false,
-            error: "System domains cannot be disabled.",
+            error:
+              "System domains cannot be disabled.",
           });
+
           return;
         }
 
-        if (dbDomain.organization_id !== organizationId) {
+        if (
+          dbDomain.organization_id !==
+          organizationId
+        ) {
           res.status(403).json({
             success: false,
             error:
               "Domain definition does not belong to your organization.",
           });
+
           return;
         }
 
-        const result = await pool.query(
-          `
-            UPDATE domain_registry
-            SET
-              is_active = FALSE,
-              updated_at = NOW()
-            WHERE
-              domain_key = $1
-              AND organization_id = $2
-              AND domain_scope = 'ORGANIZATION'
-              AND is_active = TRUE
-            RETURNING
-              id,
-              domain_key,
-              display_name,
-              domain_scope,
-              organization_id,
-              specialization_id,
-              is_active,
-              updated_at
-          `,
-          [domainKey, organizationId]
-        );
+        if (
+          dbDomain.domain_scope !==
+          "ORGANIZATION"
+        ) {
+          res.status(403).json({
+            success: false,
+            error:
+              "System-controlled domains cannot be disabled by an organization.",
+          });
 
-        if (result.rows.length === 0) {
+          return;
+        }
+
+        const result =
+          await pool.query(
+            `
+              UPDATE domain_registry
+              SET
+                is_active = FALSE,
+                updated_at = NOW()
+              WHERE
+                domain_key = $1
+                AND organization_id = $2
+                AND domain_scope = 'ORGANIZATION'
+                AND is_active = TRUE
+              RETURNING
+                id,
+                domain_key,
+                display_name,
+                domain_scope,
+                organization_id,
+                specialization_id,
+                is_active,
+                updated_at
+            `,
+            [
+              domainKey,
+              organizationId,
+            ]
+          );
+
+        if (
+          result.rows.length === 0
+        ) {
           res.status(404).json({
             success: false,
             error:
               "Domain definition not found or already inactive.",
           });
+
           return;
         }
 
         res.json({
           success: true,
-          domain_definition: result.rows[0],
+          domain_definition:
+            result.rows[0],
         });
       } catch (error) {
-        console.error("Domain disable failed:", error);
+        console.error(
+          "Domain disable failed:",
+          error
+        );
 
         res.status(500).json({
           success: false,
-          error: "Unable to disable domain definition",
+          error:
+            "Unable to disable domain definition",
         });
       }
     }

@@ -13,6 +13,7 @@ import {
 
 import {
   createDomainRelationship,
+  getRelationshipTypes,
 } from "@/lib/api/domainRelationships";
 
 type DomainDefinition = {
@@ -125,6 +126,15 @@ export default function DocumentDomainAssignment({
   const [selectedDomainId, setSelectedDomainId] =
     useState("");
 
+  const [relationshipTypes, setRelationshipTypes] =
+    useState<string[]>([]);
+
+  const [selectedRelationshipType, setSelectedRelationshipType] =
+    useState("");
+
+  const [loadingRelationshipTypes, setLoadingRelationshipTypes] =
+    useState(false);
+
   const [loadingDomains, setLoadingDomains] =
     useState(false);
 
@@ -168,6 +178,7 @@ export default function DocumentDomainAssignment({
 
     setError(null);
     setSelectedDomainId("");
+    setSelectedRelationshipType("");
     setShowCreateForm(false);
     setForm(emptyForm);
 
@@ -249,6 +260,77 @@ export default function DocumentDomainAssignment({
 
     void loadDomains();
 
+    const loadRelationshipTypes = async () => {
+      setLoadingRelationshipTypes(true);
+
+      try {
+        const response =
+          await getRelationshipTypes();
+
+        const payload =
+          await readPayload(response);
+
+        if (!response.ok) {
+          throw new Error(
+            readError(
+              payload,
+              "Unable to load relationship types."
+            )
+          );
+        }
+
+        const rawRelationshipTypes =
+          typeof payload === "object" &&
+          payload !== null &&
+          "relationship_types" in payload &&
+          Array.isArray(
+            (
+              payload as {
+                relationship_types?: unknown;
+              }
+            ).relationship_types
+          )
+            ? (
+                payload as {
+                  relationship_types: unknown[];
+                }
+              ).relationship_types
+            : [];
+
+        const normalizedRelationshipTypes =
+          rawRelationshipTypes.filter(
+            (
+              value
+            ): value is string =>
+              typeof value === "string" &&
+              value.trim().length > 0
+          );
+
+        if (cancelled) {
+          return;
+        }
+
+        setRelationshipTypes(
+          normalizedRelationshipTypes
+        );
+      } catch (relationshipTypeError: unknown) {
+        if (cancelled) {
+          return;
+        }
+
+        setError(
+          relationshipTypeError instanceof Error
+            ? relationshipTypeError.message
+            : "Unable to load relationship types."
+        );
+      } finally {
+        if (!cancelled) {
+          setLoadingRelationshipTypes(false);
+        }
+      }
+    };
+    void loadRelationshipTypes();
+
     return () => {
       cancelled = true;
     };
@@ -289,6 +371,13 @@ export default function DocumentDomainAssignment({
       return;
     }
 
+
+    if (!selectedRelationshipType) {
+      setError(
+        "Select a relationship type first."
+      );
+      return;
+    }
     setAssigning(true);
     setError(null);
 
@@ -299,7 +388,7 @@ export default function DocumentDomainAssignment({
             metadataRecordId,
           domain_id: domainId,
           relationship_type:
-            "SUBJECT",
+            selectedRelationshipType,
         });
 
       const payload =
@@ -343,6 +432,13 @@ export default function DocumentDomainAssignment({
 
     const domainFamily =
       form.domain_family;
+
+    if (!selectedRelationshipType) {
+      setError(
+        "Select a relationship type first."
+      );
+      return;
+    }
 
     if (
       !domainKey ||
@@ -393,12 +489,12 @@ export default function DocumentDomainAssignment({
       const createdDomain =
         typeof payload === "object" &&
         payload !== null &&
-        "data" in payload
+        "domain_definition" in payload
           ? (
               payload as {
-                data?: unknown;
+                domain_definition?: unknown;
               }
-            ).data
+            ).domain_definition
           : null;
 
       const createdDomainId =
@@ -427,7 +523,7 @@ export default function DocumentDomainAssignment({
             domain_id:
               createdDomainId,
             relationship_type:
-              "SUBJECT",
+            selectedRelationshipType,
           });
 
         const assignmentPayload =
@@ -510,7 +606,7 @@ export default function DocumentDomainAssignment({
           domain_id:
             matchingDomain.id,
           relationship_type:
-            "SUBJECT",
+            selectedRelationshipType,
         });
 
       const assignmentPayload =
@@ -641,6 +737,52 @@ export default function DocumentDomainAssignment({
                 </select>
               </div>
 
+              <div>
+                <label
+                  htmlFor="document-relationship-type-select"
+                  className="block text-sm font-semibold text-slate-800"
+                >
+                  Relationship type
+                </label>
+
+                <select
+                  id="document-relationship-type-select"
+                  value={selectedRelationshipType}
+                  onChange={(event) =>
+                    setSelectedRelationshipType(
+                      event.target.value
+                    )
+                  }
+                  disabled={
+                    assigning ||
+                    creating ||
+                    loadingRelationshipTypes
+                  }
+                  className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:bg-slate-50"
+                >
+                  <option value="">
+                    {loadingRelationshipTypes
+                      ? "Loading relationship types..."
+                      : "Select a relationship type"}
+                  </option>
+
+                  {relationshipTypes.map(
+                    (relationshipType) => (
+                      <option
+                        key={relationshipType}
+                        value={relationshipType}
+                      >
+                        {relationshipType}
+                      </option>
+                    )
+                  )}
+                </select>
+
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Choose how this domain relates to the document.
+                </p>
+              </div>
+
               {!showCreateForm && (
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <p className="text-xs text-slate-500">
@@ -677,7 +819,8 @@ export default function DocumentDomainAssignment({
                       }}
                       disabled={
                         assigning ||
-                        selectedDomainId === ""
+                        selectedDomainId === "" ||
+                        selectedRelationshipType === ""
                       }
                       className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                     >
@@ -711,7 +854,7 @@ export default function DocumentDomainAssignment({
                         );
                         setError(null);
                       }}
-                      disabled={creating}
+                        disabled={creating}
                       className="text-xs font-semibold text-slate-500 hover:text-slate-900 disabled:opacity-50"
                     >
                       Use Existing
@@ -891,7 +1034,10 @@ export default function DocumentDomainAssignment({
                       onClick={() => {
                         void handleCreate();
                       }}
-                      disabled={creating}
+                      disabled={
+                        creating ||
+                        selectedRelationshipType === ""
+                      }
                       className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {creating

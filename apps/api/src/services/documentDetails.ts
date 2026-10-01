@@ -1,39 +1,39 @@
 import type { Pool } from "pg";
 
+type DocumentDetailsRow = {
+  document_record: Record<string, unknown>;
+  metadata_record: Record<string, unknown> | null;
+
+  department_id: number | null;
+  department_name: string | null;
+  department_code: string | null;
+
+  document_type_id: number | null;
+  document_type_name: string | null;
+};
+
 export async function getDocumentDetails(
   pool: Pool,
   organizationId: number,
   documentId: number
 ) {
-  const documentResult = await pool.query(
+  /*
+   * Retrieve the document and the complete metadata_records row.
+   *
+   * The metadata record is deliberately retrieved with to_jsonb(mr)
+   * rather than maintaining a manually selected list of metadata
+   * columns. This keeps the complete stored metadata record available
+   * without requiring this service to be changed whenever a metadata
+   * column is added.
+   */
+  const documentResult = await pool.query<DocumentDetailsRow>(
     `
       SELECT
-        d.id,
-        d.document_code,
-        d.upload_number,
-        d.filename,
-        d.title,
-        d.document_date,
-        d.upload_date,
-        d.year,
-        d.person_name,
-        d.file_type,
-        d.file_size,
-        d.status,
-        d.metadata_record_id,
-
-        mr.id AS metadata_id,
-        mr.reference_code,
-        mr.title AS metadata_title,
-        mr.document_date AS metadata_document_date,
-        mr.year AS metadata_year,
-        mr.person_name AS metadata_person_name,
-        mr.description AS metadata_description,
-        mr.section AS metadata_section,
-        mr.additional_metadata,
-        mr.status AS metadata_status,
-        mr.created_at AS metadata_created_at,
-        mr.updated_at AS metadata_updated_at,
+        to_jsonb(d) AS document_record,
+        CASE
+          WHEN mr.id IS NULL THEN NULL
+          ELSE to_jsonb(mr)
+        END AS metadata_record,
 
         dept.id AS department_id,
         dept.name AS department_name,
@@ -43,14 +43,19 @@ export async function getDocumentDetails(
         dt.name AS document_type_name
 
       FROM documents d
+
       LEFT JOIN metadata_records mr
         ON mr.id = d.metadata_record_id
+
       LEFT JOIN departments dept
         ON dept.id = mr.department_id
+
       LEFT JOIN document_types dt
         ON dt.id = mr.document_type_id
+
       WHERE d.id = $1
         AND d.organization_id = $2
+
       LIMIT 1
     `,
     [documentId, organizationId]
@@ -60,27 +65,21 @@ export async function getDocumentDetails(
     return null;
   }
 
-  const document = documentResult.rows[0];
+  const row = documentResult.rows[0];
 
-  const metadataRecordId = document.metadata_id;
+  if (!row) {
+    return null;
+  }
 
-  if (metadataRecordId === null || metadataRecordId === undefined) {
+  const documentRecord = row.document_record;
+  const metadataRecord = row.metadata_record;
+
+  /*
+   * No metadata record is attached to this document.
+   */
+  if (!metadataRecord) {
     return {
-      document: {
-        id: document.id,
-        document_code: document.document_code,
-        upload_number: document.upload_number,
-        filename: document.filename,
-        title: document.title,
-        document_date: document.document_date,
-        upload_date: document.upload_date,
-        year: document.year,
-        person_name: document.person_name,
-        file_type: document.file_type,
-        file_size: document.file_size,
-        status: document.status,
-        metadata_record_id: document.metadata_record_id,
-      },
+      document: documentRecord,
       mainMetadata: null,
       additionalMetadata: {},
       universalMetadata: [],
@@ -89,6 +88,22 @@ export async function getDocumentDetails(
     };
   }
 
+  const metadataRecordId = metadataRecord.id;
+
+  if (
+    typeof metadataRecordId !== "number" ||
+    !Number.isInteger(metadataRecordId) ||
+    metadataRecordId <= 0
+  ) {
+    throw new Error(
+      "The document references an invalid metadata record."
+    );
+  }
+
+  /*
+   * Retrieve universal metadata values and domain relationships
+   * independently because they are separate persisted structures.
+   */
   const [universalResult, domainResult] = await Promise.all([
     pool.query(
       `
@@ -96,6 +111,7 @@ export async function getDocumentDetails(
           mv.id,
           mv.metadata_record_id,
           mv.field_registry_id,
+
           fr.field_key,
           fr.display_name,
           fr.description,
@@ -111,16 +127,21 @@ export async function getDocumentDetails(
           fr.aliases,
           fr.controlled_vocabulary,
           fr.unit,
+
           mv.value,
           mv.source,
           mv.confidence,
           mv.verification_status,
           mv.created_at,
           mv.updated_at
+
         FROM metadata_values mv
+
         INNER JOIN field_registry fr
           ON fr.id = mv.field_registry_id
+
         WHERE mv.metadata_record_id = $1
+
         ORDER BY
           fr.category,
           fr.display_name,
@@ -135,21 +156,38 @@ export async function getDocumentDetails(
           mdr.id,
           mdr.metadata_record_id,
           mdr.domain_id,
+
           dr.domain_key,
           dr.display_name,
           dr.description,
           dr.domain_family,
           dr.organization_id AS domain_organization_id,
           dr.is_active AS domain_is_active,
+
+          CASE
+            WHEN dr.organization_id IS NOT NULL
+              THEN 'ORGANIZATION'
+            WHEN COALESCE(
+              (to_jsonb(dr) ->> 'specialization_id'),
+              ''
+            ) <> ''
+              THEN 'SPECIALIZED'
+            ELSE 'UNIVERSAL'
+          END AS domain_scope,
+
           mdr.relationship_type,
           mdr.organization_id AS relationship_organization_id,
           mdr.created_at,
           mdr.updated_at
+
         FROM metadata_domain_relationships mdr
+
         INNER JOIN domain_registry dr
           ON dr.id = mdr.domain_id
+
         WHERE mdr.metadata_record_id = $1
           AND mdr.organization_id = $2
+
         ORDER BY
           dr.display_name,
           mdr.relationship_type,
@@ -161,15 +199,34 @@ export async function getDocumentDetails(
 
   const domainRelationships = domainResult.rows;
 
-  const domainClassifications = domainRelationships.map((relationship) => ({
-    domain_id: relationship.domain_id,
-    domain_key: relationship.domain_key,
-    display_name: relationship.display_name,
-    description: relationship.description,
-    domain_family: relationship.domain_family,
-    domain_organization_id: relationship.domain_organization_id,
-    domain_is_active: relationship.domain_is_active,
-  }));
+  /*
+   * Domain classifications are derived from the persisted
+   * relationship rows.
+   *
+   * A domain may have more than one relationship type, but it
+   * should appear only once in the classification section.
+   *
+   * domain_scope is preserved so the frontend can place each
+   * domain into:
+   *
+   *   Universal
+   *   Specialized
+   *   Organization
+   */
+  const domainClassifications = domainRelationships.map(
+    (relationship) => ({
+      domain_id: relationship.domain_id,
+      domain_key: relationship.domain_key,
+      display_name: relationship.display_name,
+      description: relationship.description,
+      domain_family: relationship.domain_family,
+      domain_scope: relationship.domain_scope,
+      domain_organization_id:
+        relationship.domain_organization_id,
+      domain_is_active:
+        relationship.domain_is_active,
+    })
+  );
 
   const uniqueDomainClassifications = Array.from(
     new Map(
@@ -180,54 +237,56 @@ export async function getDocumentDetails(
     ).values()
   );
 
+  /*
+   * Keep the complete metadata_records row intact.
+   *
+   * Department and document type are also resolved into structured
+   * objects for the Document Details UI.
+   */
+  const mainMetadata = {
+    ...metadataRecord,
+
+    department: {
+      id: row.department_id,
+      name: row.department_name,
+      code: row.department_code,
+    },
+
+    document_type: {
+      id: row.document_type_id,
+      name: row.document_type_name,
+    },
+  };
+
+  /*
+   * additionalMetadata remains a separate response section for
+   * the existing Document Details UI.
+   */
+  const additionalMetadata =
+    metadataRecord.additional_metadata &&
+    typeof metadataRecord.additional_metadata === "object"
+      ? metadataRecord.additional_metadata
+      : {};
+
+  /*
+   * This GET service deliberately does not repair invalid data.
+   *
+   * A DOCUMENT_LINKED record should have both:
+   *
+   *   - department_id
+   *   - reference_code
+   *
+   * because reference-code generation depends on Department.
+   *
+   * Enforcement belongs in the metadata creation/linking/update
+   * transaction and, where appropriate, database constraints.
+   */
   return {
-    document: {
-      id: document.id,
-      document_code: document.document_code,
-      upload_number: document.upload_number,
-      filename: document.filename,
-      title: document.title,
-      document_date: document.document_date,
-      upload_date: document.upload_date,
-      year: document.year,
-      person_name: document.person_name,
-      file_type: document.file_type,
-      file_size: document.file_size,
-      status: document.status,
-      metadata_record_id: document.metadata_record_id,
-    },
-
-    mainMetadata: {
-      id: document.metadata_id,
-      reference_code: document.reference_code,
-      title: document.metadata_title,
-      document_date: document.metadata_document_date,
-      year: document.metadata_year,
-      person_name: document.metadata_person_name,
-      description: document.metadata_description,
-      section: document.metadata_section,
-      status: document.metadata_status,
-      created_at: document.metadata_created_at,
-      updated_at: document.metadata_updated_at,
-
-      department: {
-        id: document.department_id,
-        name: document.department_name,
-        code: document.department_code,
-      },
-
-      document_type: {
-        id: document.document_type_id,
-        name: document.document_type_name,
-      },
-    },
-
-    additionalMetadata: document.additional_metadata ?? {},
-
+    document: documentRecord,
+    mainMetadata,
+    additionalMetadata,
     universalMetadata: universalResult.rows,
-
     domainClassifications: uniqueDomainClassifications,
-
     domainRelationships,
   };
 }

@@ -76,10 +76,15 @@ const RELATIONSHIP_TYPES = [
   "CUSTODY",
   "PRESERVATION",
   "DISPOSITION",
-];
+] as const;
 
 type RelationshipType =
   (typeof RELATIONSHIP_TYPES)[number];
+
+type DatabaseError = {
+  code?: string;
+  message?: string;
+};
 
 export function createDomainRelationshipsRouter(
   pool: Pool
@@ -103,19 +108,40 @@ export function createDomainRelationshipsRouter(
         success: false,
         error: "Organization context is required.",
       });
+
       return null;
     }
 
     return organizationId;
   };
 
+  const normalizeRelationshipType = (
+    value: unknown
+  ): string => {
+    return typeof value === "string"
+      ? value.trim().toUpperCase()
+      : "";
+  };
+
   const isRelationshipType = (
     value: unknown
-  ): value is RelationshipType =>
-    typeof value === "string" &&
-    RELATIONSHIP_TYPES.includes(
-      value as RelationshipType
+  ): value is RelationshipType => {
+    return (
+      typeof value === "string" &&
+      RELATIONSHIP_TYPES.includes(
+        value as RelationshipType
+      )
     );
+  };
+
+  const isSubjectRelationship = (
+    value: unknown
+  ): boolean => {
+    return (
+      typeof value === "string" &&
+      value.trim().toUpperCase() === "SUBJECT"
+    );
+  };
 
   const parsePositiveInteger = (
     value: unknown
@@ -168,6 +194,7 @@ export function createDomainRelationshipsRouter(
           error:
             "A valid metadata_record_id is required.",
         });
+
         return;
       }
 
@@ -200,6 +227,7 @@ export function createDomainRelationshipsRouter(
             error:
               "Metadata record not found.",
           });
+
           return;
         }
 
@@ -298,6 +326,7 @@ export function createDomainRelationshipsRouter(
           error:
             "A domain_key is required.",
         });
+
         return;
       }
 
@@ -315,6 +344,7 @@ export function createDomainRelationshipsRouter(
             error:
               "Domain not found or is not available to your organization.",
           });
+
           return;
         }
 
@@ -452,7 +482,9 @@ export function createDomainRelationshipsRouter(
         );
 
       const relationshipType =
-        req.body?.relationship_type;
+        normalizeRelationshipType(
+          req.body?.relationship_type
+        );
 
       if (
         metadataRecordId === null ||
@@ -463,6 +495,7 @@ export function createDomainRelationshipsRouter(
           error:
             "metadata_record_id and domain_id must be positive integers.",
         });
+
         return;
       }
 
@@ -478,6 +511,7 @@ export function createDomainRelationshipsRouter(
           allowed_relationship_types:
             RELATIONSHIP_TYPES,
         });
+
         return;
       }
 
@@ -509,6 +543,7 @@ export function createDomainRelationshipsRouter(
             error:
               "Metadata record not found.",
           });
+
           return;
         }
 
@@ -525,6 +560,7 @@ export function createDomainRelationshipsRouter(
             error:
               "Domain not found or is not available to your organization.",
           });
+
           return;
         }
 
@@ -534,13 +570,19 @@ export function createDomainRelationshipsRouter(
             error:
               "Inactive domains cannot be assigned to metadata.",
           });
+
           return;
         }
+
+        // --------------------------------------------------------
+        // EXISTING RELATIONSHIP DUPLICATE CHECK
+        // --------------------------------------------------------
 
         const duplicate =
           await pool.query(
             `
-              SELECT id
+              SELECT
+                id
               FROM metadata_domain_relationships
               WHERE
                 metadata_record_id = $1
@@ -567,7 +609,70 @@ export function createDomainRelationshipsRouter(
             relationship_id:
               duplicate.rows[0].id,
           });
+
           return;
+        }
+
+        // --------------------------------------------------------
+        // SINGLE SUBJECT RULE
+        //
+        // A metadata record may have only one SUBJECT
+        // relationship within the organization.
+        //
+        // Existing historical duplicate SUBJECT rows are not
+        // modified here. This check only prevents new cross-domain
+        // SUBJECT relationships from being created.
+        // --------------------------------------------------------
+
+        if (
+          isSubjectRelationship(
+            relationshipType
+          )
+        ) {
+          const existingSubject =
+            await pool.query(
+              `
+                SELECT
+                  id,
+                  domain_id
+                FROM metadata_domain_relationships
+                WHERE
+                  metadata_record_id = $1
+                  AND organization_id = $2
+                  AND relationship_type = 'SUBJECT'
+                ORDER BY id
+                LIMIT 1
+              `,
+              [
+                metadataRecordId,
+                organizationId,
+              ]
+            );
+
+          if (
+            existingSubject.rows.length > 0
+          ) {
+            const existingSubjectRelationship =
+              existingSubject.rows[0];
+
+            if (
+              Number(
+                existingSubjectRelationship.domain_id
+              ) !== domainId
+            ) {
+              res.status(409).json({
+                success: false,
+                error:
+                  "This metadata record already has a SUBJECT domain. Remove the existing SUBJECT relationship before assigning SUBJECT to another domain.",
+                relationship_id:
+                  existingSubjectRelationship.id,
+                domain_id:
+                  existingSubjectRelationship.domain_id,
+              });
+
+              return;
+            }
+          }
         }
 
         const result =
@@ -614,25 +719,29 @@ export function createDomainRelationshipsRouter(
             metadataCheck.rows[0],
           domain,
         });
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const databaseError =
+          error as DatabaseError;
+
         console.error(
           "Domain relationship creation failed:",
           error
         );
 
         if (
-          error?.code === "23505"
+          databaseError.code === "23505"
         ) {
           res.status(409).json({
             success: false,
             error:
               "This domain relationship already exists.",
           });
+
           return;
         }
 
         if (
-          error?.code === "23514"
+          databaseError.code === "23514"
         ) {
           res.status(400).json({
             success: false,
@@ -641,18 +750,20 @@ export function createDomainRelationshipsRouter(
             allowed_relationship_types:
               RELATIONSHIP_TYPES,
           });
+
           return;
         }
 
         if (
-          error?.code === "P0001"
+          databaseError.code === "P0001"
         ) {
           res.status(403).json({
             success: false,
             error:
-              error.message ||
+              databaseError.message ||
               "The domain relationship does not belong to the current organization.",
           });
+
           return;
         }
 
@@ -663,7 +774,7 @@ export function createDomainRelationshipsRouter(
           details:
             process.env.NODE_ENV ===
             "development"
-              ? error.message
+              ? databaseError.message
               : undefined,
         });
       }
@@ -704,11 +815,14 @@ export function createDomainRelationshipsRouter(
           error:
             "A valid relationship_id is required.",
         });
+
         return;
       }
 
       const relationshipType =
-        req.body?.relationship_type;
+        normalizeRelationshipType(
+          req.body?.relationship_type
+        );
 
       if (
         !isRelationshipType(
@@ -722,6 +836,7 @@ export function createDomainRelationshipsRouter(
           allowed_relationship_types:
             RELATIONSHIP_TYPES,
         });
+
         return;
       }
 
@@ -755,20 +870,79 @@ export function createDomainRelationshipsRouter(
             error:
               "Domain relationship not found.",
           });
+
           return;
         }
 
         const current =
           existing.rows[0];
 
+        // --------------------------------------------------------
+        // SINGLE SUBJECT RULE
+        //
+        // Only check when changing a non-SUBJECT relationship
+        // into SUBJECT. An existing SUBJECT can remain SUBJECT.
+        // --------------------------------------------------------
+
+        if (
+          isSubjectRelationship(
+            relationshipType
+          ) &&
+          !isSubjectRelationship(
+            current.relationship_type
+          )
+        ) {
+          const existingSubject =
+            await pool.query(
+              `
+                SELECT
+                  id,
+                  domain_id
+                FROM metadata_domain_relationships
+                WHERE
+                  metadata_record_id = $1
+                  AND organization_id = $2
+                  AND relationship_type = 'SUBJECT'
+                  AND id <> $3
+                ORDER BY id
+                LIMIT 1
+              `,
+              [
+                current.metadata_record_id,
+                organizationId,
+                relationshipId,
+              ]
+            );
+
+          if (
+            existingSubject.rows.length > 0
+          ) {
+            res.status(409).json({
+              success: false,
+              error:
+                "This metadata record already has a SUBJECT domain. Remove the existing SUBJECT relationship before assigning SUBJECT to another domain.",
+              relationship_id:
+                existingSubject.rows[0].id,
+              domain_id:
+                existingSubject.rows[0].domain_id,
+            });
+
+            return;
+          }
+        }
+
+        // --------------------------------------------------------
+        // EXISTING RELATIONSHIP DUPLICATE CHECK
+        // --------------------------------------------------------
+
         const duplicate =
           await pool.query(
             `
-              SELECT id
+              SELECT
+                id
               FROM metadata_domain_relationships
               WHERE
-                metadata_record_id =
-                  $1
+                metadata_record_id = $1
                 AND domain_id = $2
                 AND relationship_type = $3
                 AND organization_id = $4
@@ -794,6 +968,7 @@ export function createDomainRelationshipsRouter(
             relationship_id:
               duplicate.rows[0].id,
           });
+
           return;
         }
 
@@ -831,6 +1006,7 @@ export function createDomainRelationshipsRouter(
             error:
               "Domain relationship not found.",
           });
+
           return;
         }
 
@@ -839,20 +1015,38 @@ export function createDomainRelationshipsRouter(
           relationship:
             result.rows[0],
         });
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const databaseError =
+          error as DatabaseError;
+
         console.error(
           "Domain relationship update failed:",
           error
         );
 
         if (
-          error?.code === "23505"
+          databaseError.code === "23505"
         ) {
           res.status(409).json({
             success: false,
             error:
               "This domain relationship already exists.",
           });
+
+          return;
+        }
+
+        if (
+          databaseError.code === "23514"
+        ) {
+          res.status(400).json({
+            success: false,
+            error:
+              "The relationship type is not permitted.",
+            allowed_relationship_types:
+              RELATIONSHIP_TYPES,
+          });
+
           return;
         }
 
@@ -863,7 +1057,7 @@ export function createDomainRelationshipsRouter(
           details:
             process.env.NODE_ENV ===
             "development"
-              ? error.message
+              ? databaseError.message
               : undefined,
         });
       }
@@ -904,6 +1098,7 @@ export function createDomainRelationshipsRouter(
           error:
             "A valid relationship_id is required.",
         });
+
         return;
       }
 
@@ -938,6 +1133,7 @@ export function createDomainRelationshipsRouter(
             error:
               "Domain relationship not found.",
           });
+
           return;
         }
 

@@ -36,6 +36,11 @@ type Props = {
   description?: string;
 };
 
+const isSubjectRelationship = (
+  relationshipType: string
+): boolean =>
+  relationshipType.trim().toUpperCase() === "SUBJECT";
+
 export function DomainRelationshipSelector({
   domains,
   relationshipTypes,
@@ -59,15 +64,6 @@ export function DomainRelationshipSelector({
         )
     );
 
-  /*
-   * The persisted relationship array does not represent a selected
-   * domain with zero relationships. Therefore selectedDomainIds is
-   * intentionally maintained as independent UI state.
-   *
-   * When the parent supplies relationship selections, make sure their
-   * domains are represented as selected. Do not remove domains merely
-   * because they currently have zero relationships.
-   */
   useEffect(() => {
     setSelectedDomainIds((current) => {
       const next = new Set(current);
@@ -124,6 +120,35 @@ export function DomainRelationshipSelector({
     return map;
   }, [selected]);
 
+  /*
+   * SUBJECT is a metadata-level relationship.
+   *
+   * Only one domain may own SUBJECT for a metadata record.
+   *
+   * If historical data contains duplicate SUBJECT relationships,
+   * each existing SUBJECT remains visible and removable. However,
+   * SUBJECT cannot be newly assigned to another domain until the
+   * duplicate state has been resolved.
+   */
+  const subjectDomainIds = useMemo(() => {
+    const domainIds = new Set<number>();
+
+    for (const relationship of selected) {
+      if (
+        isSubjectRelationship(
+          relationship.relationshipType
+        )
+      ) {
+        domainIds.add(relationship.domainId);
+      }
+    }
+
+    return domainIds;
+  }, [selected]);
+
+  const subjectAssigned =
+    subjectDomainIds.size > 0;
+
   const toggleDomain = (domainId: number) => {
     if (disabled) {
       return;
@@ -152,7 +177,24 @@ export function DomainRelationshipSelector({
     domainId: number,
     relationshipType: string
   ) => {
-    if (disabled || !selectedDomainIds.has(domainId)) {
+    if (
+      disabled ||
+      !selectedDomainIds.has(domainId)
+    ) {
+      return;
+    }
+
+    /*
+     * SUBJECT may only belong to one domain.
+     *
+     * The domain already holding SUBJECT may toggle it normally.
+     * Every other domain is prevented from selecting it.
+     */
+    if (
+      isSubjectRelationship(relationshipType) &&
+      subjectAssigned &&
+      !subjectDomainIds.has(domainId)
+    ) {
       return;
     }
 
@@ -355,17 +397,40 @@ export function DomainRelationshipSelector({
                                     relationshipType.value
                                   );
 
+                                const isSubject =
+                                  isSubjectRelationship(
+                                    relationshipType.value
+                                  );
+
+                                const subjectUnavailable =
+                                  isSubject &&
+                                  subjectAssigned &&
+                                  !subjectDomainIds.has(
+                                    domain.id
+                                  );
+
+                                const relationshipDisabled =
+                                  disabled ||
+                                  subjectUnavailable;
+
                                 return (
                                   <label
                                     key={relationshipType.value}
+                                    title={
+                                      subjectUnavailable
+                                        ? "SUBJECT is already assigned to another domain for this metadata record."
+                                        : undefined
+                                    }
                                     className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
-                                      disabled
-                                        ? "cursor-not-allowed opacity-60"
+                                      relationshipDisabled
+                                        ? "cursor-not-allowed opacity-50"
                                         : "cursor-pointer"
                                     } ${
                                       checked
                                         ? "border-slate-400 bg-white"
-                                        : "border-slate-200 bg-slate-50"
+                                        : subjectUnavailable
+                                          ? "border-slate-200 bg-slate-100"
+                                          : "border-slate-200 bg-slate-50"
                                     }`}
                                   >
                                     <input
@@ -377,14 +442,28 @@ export function DomainRelationshipSelector({
                                           relationshipType.value
                                         )
                                       }
-                                      disabled={disabled}
+                                      disabled={
+                                        relationshipDisabled
+                                      }
                                       className="h-4 w-4 rounded border-slate-300"
                                     />
 
-                                    <span className="text-slate-700">
+                                    <span
+                                      className={
+                                        subjectUnavailable
+                                          ? "text-slate-400"
+                                          : "text-slate-700"
+                                      }
+                                    >
                                       {relationshipType.label ??
                                         relationshipType.value}
                                     </span>
+
+                                    {subjectUnavailable ? (
+                                      <span className="ml-auto text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                                        Unavailable
+                                      </span>
+                                    ) : null}
                                   </label>
                                 );
                               }
@@ -410,6 +489,3 @@ export function DomainRelationshipSelector({
     </section>
   );
 }
-
-
-
