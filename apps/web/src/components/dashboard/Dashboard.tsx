@@ -230,33 +230,37 @@ export function Dashboard({
                             );
                           }
                         }}
-                        className={`rounded-2xl border bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 ${
+                        className={`rounded-2xl border p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 ${
                           (
-                            card.key === "documents" &&
-                            dashboardDocumentFilter === "ALL"
-                          ) ||
-                          (
-                            card.key === "metadata" &&
-                            dashboardMetadataFilter === "ALL"
-                          ) ||
-                          (
-                            card.key === "awaiting" &&
-                            dashboardMetadataFilter === "AWAITING_DOCUMENT"
-                          ) ||
-                          (
-                            card.key === "review" &&
-                            dashboardDocumentFilter === "REVIEW"
-                          ) ||
-                          (
-                            card.key === "linked" &&
-                            dashboardDocumentFilter === "LINKED"
-                          ) ||
-                          (
-                            card.key === "unlinked" &&
-                            dashboardDocumentFilter === "UNLINKED"
+                            (
+                              card.key === "awaiting" &&
+                              dashboardMetadataFilter === "AWAITING_DOCUMENT"
+                            ) ||
+                            (
+                              card.key === "review" &&
+                              dashboardDocumentFilter === "REVIEW"
+                            ) ||
+                            (
+                              card.key === "linked" &&
+                              dashboardDocumentFilter === "LINKED"
+                            ) ||
+                            (
+                              card.key === "unlinked" &&
+                              dashboardDocumentFilter === "UNLINKED"
+                            )
                           )
-                            ? "border-slate-900 ring-1 ring-slate-900"
-                            : "border-slate-200"
+                            ? "border-slate-900 bg-white ring-1 ring-slate-900"
+                            : card.key === "documents"
+                              ? "border-slate-200 bg-blue-50/70 hover:border-slate-300"
+                              : card.key === "metadata"
+                                ? "border-slate-200 bg-violet-50/70 hover:border-slate-300"
+                                : card.key === "awaiting"
+                                  ? "border-amber-100 bg-amber-50/70 hover:border-amber-200"
+                                  : card.key === "review"
+                                    ? "border-yellow-100 bg-yellow-50/70 hover:border-yellow-200"
+                                    : card.key === "linked"
+                                      ? "border-emerald-100 bg-emerald-50/70 hover:border-emerald-200"
+                                      : "border-rose-100 bg-rose-50/70 hover:border-rose-200"
                         }`}
                       >
                         <div className="flex items-start justify-between">
@@ -267,7 +271,21 @@ export function Dashboard({
                               }
                             </p>
 
-                            <p className="mt-2 text-3xl font-bold tracking-tight">
+                            <p
+                              className={`mt-2 text-3xl font-bold tracking-tight ${
+                                card.key === "documents"
+                                  ? "text-blue-700"
+                                  : card.key === "metadata"
+                                    ? "text-violet-700"
+                                    : card.key === "awaiting"
+                                      ? "text-amber-700"
+                                      : card.key === "review"
+                                        ? "text-yellow-700"
+                                        : card.key === "linked"
+                                          ? "text-emerald-700"
+                                          : "text-rose-700"
+                              }`}
+                            >
                               {getStatValue(
                                 card.key
                               )}
@@ -276,7 +294,19 @@ export function Dashboard({
 
                           <div
                             aria-hidden="true"
-                            className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-sm font-bold text-slate-700"
+                            className={`flex h-10 w-10 items-center justify-center rounded-xl text-sm font-bold ${
+                              card.key === "documents"
+                                ? "bg-blue-100 text-blue-700"
+                                : card.key === "metadata"
+                                  ? "bg-violet-100 text-violet-700"
+                                  : card.key === "awaiting"
+                                    ? "bg-amber-100 text-amber-700"
+                                    : card.key === "review"
+                                      ? "bg-yellow-100 text-yellow-700"
+                                      : card.key === "linked"
+                                        ? "bg-emerald-100 text-emerald-700"
+                                        : "bg-rose-100 text-rose-700"
+                            }`}
                           >
                             {
                               card.icon
