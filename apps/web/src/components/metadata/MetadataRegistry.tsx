@@ -124,10 +124,69 @@ export function MetadataRegistry({
     error: fieldError,
   } = useFieldRegistry();
 
+  type MetadataExpansionSection =
+    | "universal"
+    | "additional";
+
   const [
     selectedMetadataRecord,
     setSelectedMetadataRecord,
   ] = React.useState<MetadataRecord | null>(null);
+
+  const [
+    metadataExpansionOrder,
+    setMetadataExpansionOrder,
+  ] = React.useState<
+    Record<string, MetadataExpansionSection[]>
+  >(() => {
+    const initialOrder: Record<
+      string,
+      MetadataExpansionSection[]
+    > = {};
+
+    expandedAdditionalMetadata.forEach(
+      (recordId) => {
+        initialOrder[recordId] = ["additional"];
+      }
+    );
+
+    return initialOrder;
+  });
+
+  const toggleMetadataExpansion = (
+    record: MetadataRecord,
+    section: MetadataExpansionSection
+  ) => {
+    setMetadataExpansionOrder((current) => {
+      const existing = current[record.id] ?? [];
+      const isExpanded = existing.includes(section);
+
+      if (isExpanded) {
+        const nextOrder = existing.filter(
+          (item) => item !== section
+        );
+
+        if (nextOrder.length === 0) {
+          const next = { ...current };
+          delete next[record.id];
+          return next;
+        }
+
+        return {
+          ...current,
+          [record.id]: nextOrder,
+        };
+      }
+
+      return {
+        ...current,
+        [record.id]: [
+          ...existing,
+          section,
+        ],
+      };
+    });
+  };
 
   const [
     showUniversalMetadataGuide,
@@ -575,14 +634,25 @@ export function MetadataRegistry({
                           <div className="mb-3">
                             <button
                               type="button"
-                              onClick={() =>
+                              onClick={() => {
+                                const isExpanded =
+                                  metadataExpansionOrder[
+                                    record.id
+                                  ]?.includes(
+                                    "universal"
+                                  ) ?? false;
+
+                                toggleMetadataExpansion(
+                                  record,
+                                  "universal"
+                                );
+
                                 setSelectedMetadataRecord(
-                                  (current) =>
-                                    current?.id === record.id
-                                      ? null
-                                      : record
-                                )
-                              }
+                                  isExpanded
+                                    ? null
+                                    : record
+                                );
+                              }}
                               className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition hover:border-indigo-400 hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
                             >
                               {selectedMetadataRecord?.id ===
@@ -596,78 +666,50 @@ export function MetadataRegistry({
                           Object.keys(
                             record.additional_metadata
                           ).length > 0 ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setExpandedAdditionalMetadata(
-                                    (current) => {
-                                      const next =
-                                        new Set(
-                                          current
-                                        );
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const isExpanded =
+                                  metadataExpansionOrder[
+                                    record.id
+                                  ]?.includes(
+                                    "additional"
+                                  ) ?? false;
 
-                                      if (
-                                        next.has(
-                                          record.id
-                                        )
-                                      ) {
-                                        next.delete(
-                                          record.id
-                                        );
-                                      } else {
-                                        next.add(
-                                          record.id
-                                        );
-                                      }
+                                toggleMetadataExpansion(
+                                  record,
+                                  "additional"
+                                );
 
-                                      return next;
+                                setExpandedAdditionalMetadata(
+                                  (current) => {
+                                    const next =
+                                      new Set(current);
+
+                                    if (isExpanded) {
+                                      next.delete(
+                                        record.id
+                                      );
+                                    } else {
+                                      next.add(
+                                        record.id
+                                      );
                                     }
-                                  );
-                                }}
-                                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
-                              >
-                                {expandedAdditionalMetadata.has(
-                                  record.id
-                                )
-                                  ? "Hide Additional Metadata"
-                                  : "Additional Metadata"}
-                              </button>
 
-                              {expandedAdditionalMetadata.has(
+                                    return next;
+                                  }
+                                );
+                              }}
+                              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+                            >
+                              {metadataExpansionOrder[
                                 record.id
-                              ) && (
-                                <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                                  {Object.entries(
-                                    record.additional_metadata
-                                  ).map(
-                                    ([
-                                      key,
-                                      value,
-                                    ]) => (
-                                      <div
-                                        key={key}
-                                        className="text-xs text-slate-600"
-                                      >
-                                        <span className="font-semibold text-slate-700">
-                                          {key}:
-                                        </span>{" "}
-                                        {value ===
-                                          null ||
-                                        value ===
-                                          undefined ||
-                                        value ===
-                                          ""
-                                          ? "—"
-                                          : String(
-                                              value
-                                            )}
-                                      </div>
-                                    )
-                                  )}
-                                </div>
-                              )}
-                            </>
+                              ]?.includes(
+                                "additional"
+                              )
+                                ? "Hide Additional Metadata"
+                                : "Additional Metadata"}
+                            </button>
                           ) : (
                             <span className="text-sm text-slate-400">
                               —
@@ -676,31 +718,93 @@ export function MetadataRegistry({
                         </td>
                       </tr>
 
-                      {selectedMetadataRecord?.id ===
-                        record.id && (
-                        <tr>
-                          <td
-                            colSpan={9}
-                            className="p-0"
-                          >
-                            <MetadataOutputPanel
-                              metadataRecordId={Number(
-                                record.id
-                              )}
-                              metadataTitle={
-                                record.title
-                              }
-                              metadataReferenceCode={
-                                record.reference_code
-                              }
-                              onClose={() =>
-                                setSelectedMetadataRecord(
-                                  null
-                                )
-                              }
-                            />
-                          </td>
-                        </tr>
+                      {(metadataExpansionOrder[record.id] ?? []).map(
+                        (section) => {
+                          if (section === "universal") {
+                            return (
+                              <tr
+                                key={`${record.id}-universal`}
+                              >
+                                <td
+                                  colSpan={9}
+                                  className="p-0"
+                                >
+                                  <MetadataOutputPanel
+                                    metadataRecordId={Number(
+                                      record.id
+                                    )}
+                                    metadataTitle={
+                                      record.title
+                                    }
+                                    metadataReferenceCode={
+                                      record.reference_code
+                                    }
+                                    onClose={() => {
+                                      toggleMetadataExpansion(
+                                        record,
+                                        "universal"
+                                      );
+                                      setSelectedMetadataRecord(
+                                        null
+                                      );
+                                    }}
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          if (
+                            section === "additional" &&
+                            record.additional_metadata &&
+                            Object.keys(
+                              record.additional_metadata
+                            ).length > 0
+                          ) {
+                            return (
+                              <tr
+                                key={`${record.id}-additional`}
+                              >
+                                <td
+                                  colSpan={9}
+                                  className="p-0"
+                                >
+                                  <div className="space-y-2 border-b border-slate-200 bg-slate-50 p-5">
+                                    {Object.entries(
+                                      record.additional_metadata
+                                    ).map(
+                                      ([
+                                        key,
+                                        value,
+                                      ]) => (
+                                        <div
+                                          key={key}
+                                          className="text-xs text-slate-600"
+                                        >
+                                          <span className="font-semibold text-slate-700">
+                                            {key}:
+                                          </span>{" "}
+                                          {value ===
+                                            null ||
+                                          value ===
+                                            undefined ||
+                                          value ===
+                                            ""
+                                            ? "—"
+                                            : String(
+                                                value
+                                              )}
+                                        </div>
+                                      )
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return null;
+                        }
                       )}
                     </React.Fragment>
                   )
@@ -797,12 +901,3 @@ export function MetadataRegistry({
     </>
   );
 }
-
-
-
-
-
-
-
-
-
