@@ -1,3 +1,4 @@
+
 "use client";
 
 import React from "react";
@@ -8,11 +9,8 @@ import type {
   SetStateAction,
 } from "react";
 
-
 import type { Department } from "@/types/departments";
-
 import type { UploadedDocument } from "@/types/documents";
-
 import type { MetadataRecord } from "@/types/metadata";
 
 import {
@@ -23,11 +21,8 @@ import {
 import { useFieldRegistry } from "@/hooks/useFieldRegistry";
 
 import MetadataOutputPanel from "@/components/metadata/MetadataOutputPanel";
-
 import { UniversalMetadataGuide } from "@/components/metadata/UniversalMetadataGuide";
-
 import { FieldRegistryGuide } from "@/components/metadata/FieldRegistryGuide";
-
 
 type MetadataRegistryProps = {
   metadata: MetadataRecord[];
@@ -98,7 +93,6 @@ type MetadataRegistryProps = {
   ) => ReactElement;
 };
 
-
 export function MetadataRegistry({
   metadata,
   departments,
@@ -146,7 +140,9 @@ export function MetadataRegistry({
 
     expandedAdditionalMetadata.forEach(
       (recordId) => {
-        initialOrder[recordId] = ["additional"];
+        initialOrder[recordId] = [
+          "additional",
+        ];
       }
     );
 
@@ -158,23 +154,33 @@ export function MetadataRegistry({
     section: MetadataExpansionSection
   ) => {
     setMetadataExpansionOrder((current) => {
-      const existing = current[record.id] ?? [];
-      const isExpanded = existing.includes(section);
+      const existing =
+        current[record.id] ?? [];
+
+      const isExpanded =
+        existing.includes(section);
 
       if (isExpanded) {
-        const nextOrder = existing.filter(
-          (item) => item !== section
-        );
+        const nextOrder =
+          existing.filter(
+            (item) =>
+              item !== section
+          );
 
         if (nextOrder.length === 0) {
-          const next = { ...current };
+          const next = {
+            ...current,
+          };
+
           delete next[record.id];
+
           return next;
         }
 
         return {
           ...current,
-          [record.id]: nextOrder,
+          [record.id]:
+            nextOrder,
         };
       }
 
@@ -200,7 +206,6 @@ export function MetadataRegistry({
 
   return (
     <>
-
       <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-sm font-semibold text-slate-900">
@@ -210,7 +215,9 @@ export function MetadataRegistry({
           <p className="mt-1 text-sm text-slate-500">
             Browse the universal metadata catalogue and its field groups.
           </p>
-        </div>        <div className="flex shrink-0 flex-wrap gap-2">
+        </div>
+
+        <div className="flex shrink-0 flex-wrap gap-2">
           <Link
             href="/metadata/values"
             className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
@@ -218,32 +225,31 @@ export function MetadataRegistry({
             Manage Values
           </Link>
 
-
-
-        <button
-          type="button"
-          onClick={() =>
-            setShowUniversalMetadataGuide(
-              (current) => !current
-            )
-          }
-          className="shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
-        >
-          {showUniversalMetadataGuide
-            ? "Hide Guide"
-            : "Learn more"}
-        </button>
+          <button
+            type="button"
+            onClick={() =>
+              setShowUniversalMetadataGuide(
+                (current) => !current
+              )
+            }
+            className="shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+          >
+            {showUniversalMetadataGuide
+              ? "Hide Guide"
+              : "Learn more"}
+          </button>
         </div>
       </div>
 
       {showUniversalMetadataGuide && (
         <UniversalMetadataGuide
           onClose={() =>
-            setShowUniversalMetadataGuide(false)
+            setShowUniversalMetadataGuide(
+              false
+            )
           }
         />
       )}
-
 
       {selectedDepartment && (
         <section className="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -274,7 +280,8 @@ export function MetadataRegistry({
             </button>
           </div>
 
-          {selectedDepartmentDocuments.length === 0 ? (
+          {selectedDepartmentDocuments.length ===
+          0 ? (
             <div className="p-8 text-center">
               <p className="text-sm font-semibold text-slate-700">
                 No documents assigned to this department.
@@ -331,7 +338,9 @@ export function MetadataRegistry({
                   {selectedDepartmentDocuments.map(
                     (document) => (
                       <tr
-                        key={String(document.id)}
+                        key={String(
+                          document.id
+                        )}
                       >
                         <td className="whitespace-nowrap px-6 py-4 text-sm font-semibold text-slate-900">
                           {document.document_code ??
@@ -482,7 +491,8 @@ export function MetadataRegistry({
           >
             Loading metadata registry...
           </div>
-        ) : filteredMetadata.length === 0 ? (
+        ) : filteredMetadata.length ===
+          0 ? (
           <div className="p-12 text-center">
             <div
               aria-hidden="true"
@@ -556,15 +566,26 @@ export function MetadataRegistry({
               <tbody>
                 {filteredMetadata.map(
                   (record) => (
-                    <React.Fragment
-                      key={record.id}
-                    >
+                    <React.Fragment key={record.id}>
                       <tr
-                        className="border-b border-slate-100 last:border-0 hover:bg-slate-50"
+                        className={
+                          record.status ===
+                          "REVIEW_REQUIRED"
+                            ? "border-b border-amber-100 bg-amber-50/40 transition-colors duration-200 hover:bg-amber-50/70"
+                            : record.status ===
+                                "LINKED"
+                              ? "border-b border-emerald-100 bg-emerald-50/30 transition-colors duration-200 hover:bg-emerald-50/60"
+                              : record.status ===
+                                  "UNLINKED"
+                                ? "border-b border-rose-100 bg-rose-50/30 transition-colors duration-200 hover:bg-rose-50/60"
+                                : "border-b border-slate-100 bg-white transition-colors duration-200 hover:bg-slate-50"
+                        }
                       >
                         <td className="px-5 py-5">
                           <div className="font-semibold">
-                            {record.reference_code}
+                            {
+                              record.reference_code
+                            }
                           </div>
                         </td>
 
@@ -587,8 +608,11 @@ export function MetadataRegistry({
                             )}
 
                             <div className="mt-2 text-xs font-semibold text-blue-600">
-                              {record.linked_documents?.length ?? 0}{" "}
-                              {(record.linked_documents?.length ?? 0) === 1
+                              {record.linked_documents?.length ??
+                                0}{" "}
+                              {(record.linked_documents?.length ??
+                                0) ===
+                              1
                                 ? "document"
                                 : "documents"}
                               {" · View aligned documents"}
@@ -631,7 +655,7 @@ export function MetadataRegistry({
                         </td>
 
                         <td className="px-5 py-5 align-top">
-                          <div className="mb-3">
+                          <div className="flex flex-wrap gap-2">
                             <button
                               type="button"
                               onClick={() => {
@@ -640,7 +664,8 @@ export function MetadataRegistry({
                                     record.id
                                   ]?.includes(
                                     "universal"
-                                  ) ?? false;
+                                  ) ??
+                                  false;
 
                                 toggleMetadataExpansion(
                                   record,
@@ -653,74 +678,100 @@ export function MetadataRegistry({
                                     : record
                                 );
                               }}
-                              className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition hover:border-indigo-400 hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                              className={`rounded-xl border px-3 py-2 text-xs font-bold shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${
+                                metadataExpansionOrder[
+                                  record.id
+                                ]?.includes(
+                                  "universal"
+                                )
+                                  ? "border-indigo-400 bg-indigo-600 text-white shadow-indigo-200 hover:bg-indigo-700"
+                                  : "border-indigo-200 bg-indigo-50 text-indigo-700 hover:border-indigo-400 hover:bg-indigo-100"
+                              }`}
                             >
                               {selectedMetadataRecord?.id ===
                               record.id
                                 ? "Hide Universal Metadata"
                                 : "Universal Metadata"}
                             </button>
-                          </div>
 
-                          {record.additional_metadata &&
-                          Object.keys(
-                            record.additional_metadata
-                          ).length > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const isExpanded =
+                            {record.additional_metadata &&
+                            Object.keys(
+                              record.additional_metadata
+                            ).length > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const isExpanded =
+                                    metadataExpansionOrder[
+                                      record.id
+                                    ]?.includes(
+                                      "additional"
+                                    ) ??
+                                    false;
+
+                                  toggleMetadataExpansion(
+                                    record,
+                                    "additional"
+                                  );
+
+                                  setExpandedAdditionalMetadata(
+                                    (current) => {
+                                      const next =
+                                        new Set(
+                                          current
+                                        );
+
+                                      if (
+                                        isExpanded
+                                      ) {
+                                        next.delete(
+                                          record.id
+                                        );
+                                      } else {
+                                        next.add(
+                                          record.id
+                                        );
+                                      }
+
+                                      return next;
+                                    }
+                                  );
+                                }}
+                                className={`rounded-xl border px-3 py-2 text-xs font-bold shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-fuchsia-500 focus:ring-offset-2 ${
                                   metadataExpansionOrder[
                                     record.id
                                   ]?.includes(
                                     "additional"
-                                  ) ?? false;
-
-                                toggleMetadataExpansion(
-                                  record,
+                                  )
+                                    ? "border-fuchsia-400 bg-fuchsia-500 text-white shadow-fuchsia-200 hover:bg-fuchsia-600"
+                                    : "border-pink-200 bg-pink-50 text-pink-700 hover:border-fuchsia-300 hover:bg-fuchsia-50"
+                                }`}
+                              >
+                                {metadataExpansionOrder[
+                                  record.id
+                                ]?.includes(
                                   "additional"
-                                );
-
-                                setExpandedAdditionalMetadata(
-                                  (current) => {
-                                    const next =
-                                      new Set(current);
-
-                                    if (isExpanded) {
-                                      next.delete(
-                                        record.id
-                                      );
-                                    } else {
-                                      next.add(
-                                        record.id
-                                      );
-                                    }
-
-                                    return next;
-                                  }
-                                );
-                              }}
-                              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
-                            >
-                              {metadataExpansionOrder[
-                                record.id
-                              ]?.includes(
-                                "additional"
-                              )
-                                ? "Hide Additional Metadata"
-                                : "Additional Metadata"}
-                            </button>
-                          ) : (
-                            <span className="text-sm text-slate-400">
-                              —
-                            </span>
-                          )}
+                                )
+                                  ? "Hide Additional Metadata"
+                                  : "Additional Metadata"}
+                              </button>
+                            ) : (
+                              <span className="self-center text-sm text-slate-400">
+                                —
+                              </span>
+                            )}
+                          </div>
                         </td>
                       </tr>
 
-                      {(metadataExpansionOrder[record.id] ?? []).map(
+                      {(metadataExpansionOrder[
+                        record.id
+                      ] ?? []).map(
                         (section) => {
-                          if (section === "universal") {
+                          if (
+                            section ===
+                            "universal"
+                          ) {
                             return (
                               <tr
                                 key={`${record.id}-universal`}
@@ -729,33 +780,59 @@ export function MetadataRegistry({
                                   colSpan={9}
                                   className="p-0"
                                 >
-                                  <MetadataOutputPanel
-                                    metadataRecordId={Number(
-                                      record.id
-                                    )}
-                                    metadataTitle={
-                                      record.title
-                                    }
-                                    metadataReferenceCode={
-                                      record.reference_code
-                                    }
-                                    onClose={() => {
-                                      toggleMetadataExpansion(
-                                        record,
-                                        "universal"
-                                      );
-                                      setSelectedMetadataRecord(
-                                        null
-                                      );
-                                    }}
-                                  />
+                                  <div className="overflow-hidden rounded-b-2xl border-x border-b border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-violet-50 shadow-inner">
+                                    <div className="border-b border-indigo-100 bg-gradient-to-r from-indigo-100 via-indigo-50 to-violet-100 px-5 py-3">
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                          <p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-700">
+                                            Universal Metadata
+                                          </p>
+
+                                          <p className="mt-1 text-xs text-indigo-600">
+                                            System-wide metadata values for this record
+                                          </p>
+                                        </div>
+
+                                        <span className="rounded-full border border-indigo-200 bg-white/80 px-3 py-1 text-[11px] font-bold text-indigo-700 shadow-sm">
+                                          Universal
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    <MetadataOutputPanel
+                                      metadataRecordId={Number(
+                                        record.id
+                                      )}
+                                      metadataTitle={
+                                        record.title
+                                      }
+                                      metadataReferenceCode={
+                                        record.reference_code
+                                      }
+                                      onClose={() => {
+                                        toggleMetadataExpansion(
+                                          record,
+                                          "universal"
+                                        );
+
+                                        setSelectedMetadataRecord(
+                                          null
+                                        );
+                                      }}
+                                    />
+
+                                    <div className="border-t border-indigo-200 bg-gradient-to-r from-white via-violet-200 to-white px-5 py-3 shadow-inner">
+                                      <div className="h-2 rounded-full bg-gradient-to-r from-white via-indigo-300 via-violet-300 to-white opacity-80" />
+                                    </div>
+                                  </div>
                                 </td>
                               </tr>
                             );
                           }
 
                           if (
-                            section === "additional" &&
+                            section ===
+                              "additional" &&
                             record.additional_metadata &&
                             Object.keys(
                               record.additional_metadata
@@ -769,34 +846,56 @@ export function MetadataRegistry({
                                   colSpan={9}
                                   className="p-0"
                                 >
-                                  <div className="space-y-2 border-b border-slate-200 bg-slate-50 p-5">
-                                    {Object.entries(
-                                      record.additional_metadata
-                                    ).map(
-                                      ([
-                                        key,
-                                        value,
-                                      ]) => (
-                                        <div
-                                          key={key}
-                                          className="text-xs text-slate-600"
-                                        >
-                                          <span className="font-semibold text-slate-700">
-                                            {key}:
-                                          </span>{" "}
-                                          {value ===
-                                            null ||
-                                          value ===
-                                            undefined ||
-                                          value ===
-                                            ""
-                                            ? "—"
-                                            : String(
-                                                value
-                                              )}
+                                  <div className="overflow-hidden rounded-b-2xl border-x border-b border-pink-200 bg-gradient-to-br from-pink-50 via-white to-violet-50 shadow-inner">
+                                    <div className="border-b border-pink-100 bg-gradient-to-r from-pink-100 via-fuchsia-50 to-violet-100 px-5 py-3">
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                          <p className="text-xs font-bold uppercase tracking-[0.18em] text-pink-700">
+                                            Additional Metadata
+                                          </p>
+
+                                          <p className="mt-1 text-xs text-pink-600">
+                                            Record-specific metadata associated with this item
+                                          </p>
                                         </div>
-                                      )
-                                    )}
+
+                                        <span className="rounded-full border border-pink-200 bg-white/80 px-3 py-1 text-[11px] font-bold text-pink-700 shadow-sm">
+                                          Additional
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    <div className="space-y-2 p-5">
+                                      {Object.entries(
+                                        record.additional_metadata
+                                      ).map(
+                                        ([
+                                          key,
+                                          value,
+                                        ]) => (
+                                          <div
+                                            key={key}
+                                            className="rounded-xl border border-pink-100 bg-white/90 px-4 py-3 text-sm text-slate-600 shadow-sm transition hover:border-fuchsia-200 hover:bg-pink-50/60"
+                                          >
+                                            <span className="font-bold text-pink-700">
+                                              {key}:
+                                            </span>{" "}
+                                            <span className="text-slate-700">
+                                              {value ===
+                                                null ||
+                                              value ===
+                                                undefined ||
+                                              value ===
+                                                ""
+                                                ? "—"
+                                                : String(
+                                                    value
+                                                  )}
+                                            </span>
+                                          </div>
+                                        )
+                                      )}
+                                    </div>
                                   </div>
                                 </td>
                               </tr>
@@ -861,7 +960,9 @@ export function MetadataRegistry({
             {showFieldRegistryGuide && (
               <FieldRegistryGuide
                 onClose={() =>
-                  setShowFieldRegistryGuide(false)
+                  setShowFieldRegistryGuide(
+                    false
+                  )
                 }
               />
             )}

@@ -203,20 +203,20 @@ export default function MetadataOutputPanel({
   ]);
 
   return (
-    <section className="mb-8 mt-8 overflow-hidden rounded-2xl border border-indigo-200 bg-white shadow-sm">
-      <div className="flex flex-col justify-between gap-4 border-b border-indigo-200 bg-indigo-50 px-6 py-5 md:flex-row md:items-start">
+    <section className="overflow-hidden bg-gradient-to-br from-indigo-50 via-white to-violet-50">
+      <div className="flex flex-col justify-between gap-4 border-b border-indigo-200 bg-gradient-to-r from-indigo-100 via-indigo-50 to-violet-100 px-6 py-5 md:flex-row md:items-start">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-600">
             M24A Universal Metadata Output
           </p>
 
-          <h2 className="mt-1 text-xl font-bold text-slate-950">
+          <h2 className="mt-1 text-xl font-bold text-indigo-950">
             {recordTitle || "Untitled"}
           </h2>
 
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-indigo-800">
             Reference code:{" "}
-            <span className="font-semibold text-slate-900">
+            <span className="font-bold text-indigo-950">
               {recordReferenceCode || "—"}
             </span>
           </p>
@@ -230,19 +230,19 @@ export default function MetadataOutputPanel({
         <button
           type="button"
           onClick={onClose}
-          className="shrink-0 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+          className="shrink-0 rounded-xl border border-indigo-300 bg-white/90 px-4 py-2 text-sm font-bold text-indigo-700 shadow-sm transition hover:border-indigo-400 hover:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
         >
           Close
         </button>
       </div>
 
       {loading && (
-        <div className="px-6 py-10 text-center">
-          <p className="font-semibold text-slate-800">
+        <div className="bg-indigo-50/70 px-6 py-10 text-center">
+          <p className="font-bold text-indigo-900">
             Loading universal metadata...
           </p>
 
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-indigo-700">
             Retrieving populated metadata values for
             this record.
           </p>
@@ -251,7 +251,7 @@ export default function MetadataOutputPanel({
 
       {!loading && error && (
         <div className="px-6 py-8">
-          <div className="rounded-xl border border-red-200 bg-red-50 p-5">
+          <div className="rounded-xl border border-red-200 bg-red-50 p-5 shadow-sm">
             <p className="font-semibold text-red-800">
               Unable to load universal metadata
             </p>
@@ -266,12 +266,12 @@ export default function MetadataOutputPanel({
       {!loading &&
         !error &&
         values.length === 0 && (
-          <div className="px-6 py-10 text-center">
-            <p className="font-semibold text-slate-800">
+          <div className="bg-indigo-50/70 px-6 py-10 text-center">
+            <p className="font-bold text-indigo-900">
               No populated universal metadata values.
             </p>
 
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm text-indigo-700">
               Metadata values will appear here when
               fields contain actual data.
             </p>
@@ -281,14 +281,14 @@ export default function MetadataOutputPanel({
       {!loading &&
         !error &&
         values.length > 0 && (
-          <div className="p-6">
+          <div className="bg-gradient-to-b from-violet-50/80 to-white p-6">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="text-base font-bold text-slate-900">
+                <h3 className="text-base font-bold text-indigo-950">
                   Populated Metadata Fields
                 </h3>
 
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="mt-1 text-sm text-indigo-700">
                   {values.length} populated{" "}
                   {values.length === 1
                     ? "field"
@@ -299,9 +299,9 @@ export default function MetadataOutputPanel({
               </div>
             </div>
 
-            <div className="overflow-x-auto rounded-xl border border-slate-200">
-              <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-50">
+            <div className="overflow-x-auto rounded-xl border border-indigo-200 bg-white shadow-sm">
+              <table className="min-w-full divide-y divide-indigo-100">
+                <thead className="bg-indigo-100/80">
                   <tr>
                     <th className="px-5 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-600">
                       Field
@@ -333,11 +333,11 @@ export default function MetadataOutputPanel({
                   </tr>
                 </thead>
 
-                <tbody className="divide-y divide-slate-200 bg-white">
+                <tbody className="divide-y divide-indigo-100 bg-white">
                   {values.map((item) => (
                     <tr
                       key={item.id}
-                      className="align-top hover:bg-slate-50"
+                      className="align-top transition-colors hover:bg-indigo-50/50"
                     >
                       <td className="px-5 py-4">
                         <div className="font-semibold text-slate-900">
@@ -374,7 +374,7 @@ export default function MetadataOutputPanel({
                       </td>
 
                       <td className="px-5 py-4">
-                        <span className="inline-flex rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700">
+                        <span className="inline-flex rounded-full bg-indigo-100 px-3 py-1 text-xs font-bold text-indigo-800">
                           {item.verification_status ||
                             "—"}
                         </span>
