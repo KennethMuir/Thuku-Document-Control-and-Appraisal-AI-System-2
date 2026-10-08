@@ -39,6 +39,7 @@ type DashboardStatCard = {
 };
 
 type DashboardProps = {
+  organizationName: string | null;
   statistics: Statistics | null;
 
   departments: Department[];
@@ -132,6 +133,7 @@ function WorkflowStep({
 }
 
 export function Dashboard({
+  organizationName,
   statistics,
   departments,
   documents,
@@ -158,7 +160,7 @@ export function Dashboard({
                     </p>
 
                     <h2 className="mt-2 text-3xl font-bold tracking-tight">
-                      Intelligent control of your institutional records.
+                      {organizationName ? `${organizationName} Records Intelligence` : "Records Intelligence"}
                     </h2>
 
                     <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">

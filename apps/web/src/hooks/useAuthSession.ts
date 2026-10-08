@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -13,6 +12,9 @@ import type { AuthUser } from "@/types/auth";
 export function useAuthSession() {
   const [authUser, setAuthUser] =
     useState<AuthUser | null>(null);
+
+  const [organizationName, setOrganizationName] =
+    useState<string | null>(null);
 
   const [authLoading, setAuthLoading] =
     useState(true);
@@ -63,6 +65,7 @@ export function useAuthSession() {
             !data.user
           ) {
             setAuthUser(null);
+            setOrganizationName(null);
 
             setAuthError(
               data.error ||
@@ -73,6 +76,13 @@ export function useAuthSession() {
           }
 
           setAuthUser(data.user);
+
+          setOrganizationName(
+            typeof data.organization?.name ===
+              "string"
+              ? data.organization.name
+              : null
+          );
         } catch (error) {
           if (cancelled) {
             return;
@@ -84,6 +94,7 @@ export function useAuthSession() {
           );
 
           setAuthUser(null);
+          setOrganizationName(null);
 
           setAuthError(
             "Unable to verify your session. Please sign in again."
@@ -124,6 +135,7 @@ export function useAuthSession() {
 
   return {
     authUser,
+    organizationName,
     authLoading,
     authError,
     loggingOut,
@@ -136,4 +148,3 @@ export function useAuthSession() {
     logout,
   };
 }
-

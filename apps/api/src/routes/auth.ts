@@ -13,6 +13,7 @@ import {
   setSessionCookie,
   clearSessionCookie,
   findAuthenticatedUser,
+  findAuthenticatedOrganization,
 } from "../middleware/auth.js";
 
 export function createAuthRouter(pool: Pool) {
@@ -147,16 +148,6 @@ router.post(
           isActive: boolean;
         };
 
-        /*
-         * A newly registered account has no organization membership.
-         *
-         * Users must never be allowed to select or join an existing
-         * organization by supplying an organization ID, so signup
-         * provisions a private personal organization owned by the
-         * new user. This gives every account a viable membership
-         * path without creating an authorization bypass.
-         */
-
         const personalOrganizationName =
           fullName.trim()
             ? `${fullName.trim()}'s Organization`
@@ -234,10 +225,6 @@ router.post(
           ]
         );
 
-        /*
-         * Match the workspace pattern established by M17A so the
-         * newly provisioned organization is complete.
-         */
         await client.query(
           `
             INSERT INTO workspaces (
@@ -327,6 +314,7 @@ router.post(
     }
   }
 );
+
 router.post(
   "/login",
   async (
@@ -516,7 +504,10 @@ router.get(
   ) => {
     try {
       const authenticated =
-        await findAuthenticatedUser(pool, req);
+        await findAuthenticatedUser(
+          pool,
+          req
+        );
 
       if (!authenticated) {
         return res.status(401).json({
@@ -527,11 +518,25 @@ router.get(
         });
       }
 
+      const organization =
+        await findAuthenticatedOrganization(
+          pool,
+          authenticated.user.id
+        );
+
       return res.json({
         success: true,
         authenticated: true,
         user:
           authenticated.user,
+        organization: organization
+          ? {
+              id:
+                organization.organizationId,
+              name:
+                organization.organizationName,
+            }
+          : null,
       });
     } catch (error) {
       console.error(
@@ -548,7 +553,6 @@ router.get(
     }
   }
 );
-
 
   return router;
 }

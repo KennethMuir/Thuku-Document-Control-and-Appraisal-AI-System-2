@@ -260,6 +260,7 @@ export default function Home() {
 
   const {
     authUser,
+    organizationName,
     authLoading,
     authError,
     loggingOut,
@@ -1203,6 +1204,9 @@ export default function Home() {
             {activePage ===
               "Dashboard" && (
               <Dashboard
+                organizationName={
+                  organizationName
+                }
                 statistics={statistics}
                 departments={
                   departments
@@ -1718,4 +1722,5 @@ export default function Home() {
     </main>
   );
 }
+
 
