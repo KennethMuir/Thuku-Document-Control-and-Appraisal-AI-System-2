@@ -178,6 +178,7 @@ async function createSession(
 
 async function main() {
   const testSuffix = Date.now().toString();
+  const signupEmail = `m20-signup-${testSuffix}@test.local`;
 
   const createdUserIds: number[] = [];
   const createdOrganizationIds: number[] = [];
@@ -829,8 +830,6 @@ async function main() {
     // 8. Signup provisions a private organization with OWNER membership.
     // ------------------------------------------------------------------
 
-    const signupEmail =
-      `m20-signup-${testSuffix}@test.local`;
 
     const signupResponse = await fetch(
       `${API_URL}/api/auth/signup`,
@@ -884,6 +883,8 @@ async function main() {
       "Signup did not return a user id."
     );
 
+    createdUserIds.push(signupUserId);
+
     const provisioned =
       await pool.query<{
         organization_id: number;
@@ -913,17 +914,19 @@ async function main() {
       "Signup did not provision an organization membership."
     );
 
-    assertCondition(
-      provisioned.rows[0]!.role === "OWNER",
-      "Signup did not provision an OWNER membership."
-    );
-
     const signupOrgId = Number(
       provisioned.rows[0]!.organization_id
     );
 
-    createdOrganizationIds.push(
-      signupOrgId
+    assertCondition(
+      Number.isInteger(signupOrgId) &&
+        signupOrgId > 0,
+      "Signup returned an invalid organization id."
+    );
+
+    assertCondition(
+      provisioned.rows[0]!.role === "OWNER",
+      "Signup did not provision an OWNER membership."
     );
 
     const personalSlug = await pool.query<{
@@ -942,6 +945,8 @@ async function main() {
         `personal-${signupUserId}`,
       "Signup organization was not provisioned as a private personal organization."
     );
+
+    createdOrganizationIds.push(signupOrgId);
 
     const signupDashboard =
       await apiJson(
@@ -1082,104 +1087,155 @@ async function main() {
   } finally {
     // ------------------------------------------------------------------
     // Cleanup.
-    // ------------------------------------------------------------------
+    // Each operation is isolated so one failure does not skip later attempts.
+    const cleanupErrors: string[] = [];
 
-    try {
-      if (createdDocumentIds.length > 0) {
-        await pool.query(
+    const runCleanup = async (
+      label: string,
+      operation: () => Promise<unknown>
+    ): Promise<boolean> => {
+      try {
+        await operation();
+        console.log(`Cleanup PASS: ${label}`);
+        return true;
+      } catch (cleanupError) {
+        const message =
+          cleanupError instanceof Error
+            ? cleanupError.message
+            : String(cleanupError);
+
+        cleanupErrors.push(`${label}: ${message}`);
+        console.error(`Cleanup FAIL: ${label}: ${message}`);
+        return false;
+      }
+    };
+
+    if (createdDocumentIds.length > 0) {
+      await runCleanup("test documents", () =>
+        pool.query(
           `
             DELETE FROM documents
             WHERE id = ANY($1::bigint[])
           `,
           [createdDocumentIds]
-        );
-      }
+        )
+      );
+    }
 
-      if (createdDepartmentIds.length > 0) {
-        await pool.query(
+    if (createdDepartmentIds.length > 0) {
+      await runCleanup("test departments", () =>
+        pool.query(
           `
             DELETE FROM departments
             WHERE id = ANY($1::bigint[])
           `,
           [createdDepartmentIds]
-        );
-      }
+        )
+      );
+    }
 
-      if (createdMetadataIds.length > 0) {
-        await pool.query(
+    if (createdMetadataIds.length > 0) {
+      await runCleanup("test-created metadata", () =>
+        pool.query(
           `
             DELETE FROM metadata_records
             WHERE id = ANY($1::bigint[])
           `,
           [createdMetadataIds]
-        );
-      }
+        )
+      );
+    }
 
-      if (createdUserIds.length > 0) {
-        await pool.query(
-          `
-            DELETE FROM sessions
-            WHERE user_id = ANY($1::bigint[])
-          `,
-          [createdUserIds]
-        );
+    let organizationsCleanupSucceeded = true;
 
-        await pool.query(
-          `
-            DELETE FROM users
-            WHERE id = ANY($1::bigint[])
-          `,
-          [createdUserIds]
-        );
-      }
-
-      if (createdOrganizationIds.length > 0) {
-        await pool.query(
+    if (createdOrganizationIds.length > 0) {
+      organizationsCleanupSucceeded = await runCleanup("test-created organizations", () =>
+        pool.query(
           `
             DELETE FROM organizations
             WHERE id = ANY($1::bigint[])
           `,
           [createdOrganizationIds]
-        );
-      }
-
-      await pool.query(
-        `
-          DELETE FROM sessions
-          WHERE user_id = (
-            SELECT id
-            FROM users
-            WHERE email = $1
-            LIMIT 1
-          )
-        `,
-        [`m20-signup-${testSuffix}@test.local`]
+        )
       );
-
-      await pool.query(
-        `
-          DELETE FROM users
-          WHERE email = $1
-        `,
-        [`m20-signup-${testSuffix}@test.local`]
-      );
-
-      console.log(
-        "Cleanup: removed M20 isolation test records."
-      );
-    } catch (cleanupError) {
-      console.error(
-        "\nWARNING: M20 isolation cleanup error."
-      );
-
-      if (cleanupError instanceof Error) {
-        console.error(cleanupError.message);
-      }
-
-      process.exitCode = 1;
     }
 
-    await pool.end();
+    if (createdUserIds.length > 0) {
+      await runCleanup("test-user sessions", () =>
+        pool.query(
+          `
+            DELETE FROM sessions
+            WHERE user_id = ANY($1::bigint[])
+          `,
+          [createdUserIds]
+        )
+      );
+
+      if (organizationsCleanupSucceeded) {
+        await runCleanup("test users", () =>
+          pool.query(
+            `
+              DELETE FROM users
+              WHERE id = ANY($1::bigint[])
+            `,
+            [createdUserIds]
+          )
+        );
+      } else {
+        console.error("Cleanup SKIPPED: test-user deletion because organization cleanup failed.");
+        cleanupErrors.push("test users: skipped because organization cleanup failed");
+      }
+    }
+
+    if (organizationsCleanupSucceeded) {
+      await runCleanup("signup sessions fallback", () =>
+        pool.query(
+          `
+            DELETE FROM sessions
+            WHERE user_id = (
+              SELECT id
+              FROM users
+              WHERE email = $1
+              LIMIT 1
+            )
+          `,
+          [signupEmail]
+        )
+      );
+
+      await runCleanup("signup user fallback", () =>
+        pool.query(
+          `
+            DELETE FROM users
+            WHERE email = $1
+          `,
+          [signupEmail]
+        )
+      );
+    } else {
+      console.error("Cleanup SKIPPED: signup fallback deletion because organization cleanup failed.");
+      cleanupErrors.push("signup fallback: skipped because organization cleanup failed");
+    }
+
+    if (cleanupErrors.length > 0) {
+      console.error(
+        "\nWARNING: One or more M20 isolation cleanup operations failed."
+      );
+      process.exitCode = 1;
+    } else {
+      console.log("Cleanup: all attempted M20 isolation cleanup operations succeeded.");
+    }
+    try {
+      await pool.end();
+    } catch (poolEndError) {
+      const message =
+        poolEndError instanceof Error
+          ? poolEndError.message
+          : String(poolEndError);
+
+      console.error(`Cleanup FAIL: pool shutdown: ${message}`);
+      process.exitCode = 1;
+    }
   }
 }
 

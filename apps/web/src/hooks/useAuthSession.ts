@@ -3,9 +3,12 @@
 import { useEffect, useState } from "react";
 
 import {
-  getCurrentUser,
   logoutUser,
 } from "@/lib/api/auth";
+
+import {
+  getCurrentUserWithOrganizationRecovery,
+} from "@/lib/api/organization-session";
 
 import type { AuthUser } from "@/types/auth";
 
@@ -25,20 +28,26 @@ export function useAuthSession() {
   const [loggingOut, setLoggingOut] =
     useState(false);
 
+  const effectiveRole =
+    authUser?.organizationRole;
+
   const canManageDocuments =
-    authUser?.role === "ADMIN" ||
-    authUser?.role === "APPRAISER";
+    effectiveRole === "OWNER" ||
+    effectiveRole === "ADMIN" ||
+    effectiveRole === "APPRAISER";
 
   const canManageMetadata =
-    authUser?.role === "ADMIN" ||
-    authUser?.role === "APPRAISER";
+    effectiveRole === "OWNER" ||
+    effectiveRole === "ADMIN" ||
+    effectiveRole === "APPRAISER";
 
   const canManageDepartments =
-    authUser?.role === "ADMIN";
+    effectiveRole === "OWNER" ||
+    effectiveRole === "ADMIN";
 
   const canManageDomains =
-    authUser?.role === "ADMIN" ||
-    authUser?.role === "OWNER";
+    effectiveRole === "OWNER" ||
+    effectiveRole === "ADMIN";
 
   useEffect(() => {
     let cancelled = false;
@@ -49,12 +58,19 @@ export function useAuthSession() {
           setAuthError("");
 
           const response =
-            await getCurrentUser();
+            await getCurrentUserWithOrganizationRecovery();
 
           const data =
             await response.json();
 
           if (cancelled) {
+            return;
+          }
+
+          if (data.organizationSelectionRequired === true) {
+            setAuthUser(null);
+            setOrganizationName(null);
+            window.location.replace("/select-organization");
             return;
           }
 

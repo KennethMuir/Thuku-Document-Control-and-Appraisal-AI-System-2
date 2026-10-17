@@ -352,10 +352,17 @@ router.post(
             decision = 'LINKED'
           WHERE document_id = $1
             AND metadata_record_id = $2
+            AND EXISTS (
+              SELECT 1
+              FROM documents doc
+              WHERE doc.id = document_matches.document_id
+                AND doc.organization_id = $3
+            )
         `,
         [
           documentId,
           metadataRecordId,
+          organizationId,
         ]
       );
 
@@ -944,10 +951,17 @@ router.post(
               decision = 'LINKED'
             WHERE document_id = $1
               AND metadata_record_id = $2
+              AND EXISTS (
+                SELECT 1
+                FROM documents doc
+                WHERE doc.id = document_matches.document_id
+                  AND doc.organization_id = $3
+              )
           `,
           [
             documentId,
             parsedMetadataRecordId,
+            organizationId,
           ]
         );
 
@@ -1209,10 +1223,17 @@ router.post(
             WHERE document_id = $1
               AND metadata_record_id IS NOT NULL
               AND metadata_record_id <> $2
+              AND EXISTS (
+                SELECT 1
+                FROM documents doc
+                WHERE doc.id = document_matches.document_id
+                  AND doc.organization_id = $3
+              )
           `,
           [
             documentId,
             metadata.id,
+            organizationId,
           ]
         );
 
@@ -1277,8 +1298,9 @@ router.post(
               SET
                 decision = 'REJECTED'
               WHERE id = $1
+                AND document_id = $2
             `,
-            [latestMatch.id]
+            [latestMatch.id, documentId]
           );
         }
 
@@ -1498,14 +1520,17 @@ router.post(
               LEFT JOIN metadata_records mr
                 ON mr.id =
                    dm.metadata_record_id
+               AND mr.organization_id = $2
 
               LEFT JOIN departments d
                 ON d.id =
                    mr.department_id
+               AND d.organization_id = $2
 
               LEFT JOIN document_types dt
                 ON dt.id =
                    mr.document_type_id
+               AND dt.organization_id = $2
 
               WHERE dm.document_id = $1
                 AND EXISTS (

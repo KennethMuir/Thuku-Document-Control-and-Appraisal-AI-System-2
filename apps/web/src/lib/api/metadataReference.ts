@@ -1,3 +1,4 @@
+import { apiFetch } from "@/lib/api/client";
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ??
   "http://localhost:4000";
@@ -5,7 +6,7 @@ const API_URL =
 export async function getNextMetadataReferenceCode(
   departmentId: string | number
 ): Promise<string> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_URL}/api/metadata/next-reference/${encodeURIComponent(
       String(departmentId)
     )}`,

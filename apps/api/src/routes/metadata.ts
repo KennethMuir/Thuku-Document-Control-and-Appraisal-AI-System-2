@@ -117,8 +117,12 @@ export function createMetadataRouter(pool: Pool) {
           LEFT JOIN departments d
             ON d.id = mr.department_id
 
+             AND d.organization_id = mr.organization_id
+
           LEFT JOIN document_types dt
             ON dt.id = mr.document_type_id
+
+             AND dt.organization_id = mr.organization_id
 
           LEFT JOIN documents doc
             ON doc.metadata_record_id =

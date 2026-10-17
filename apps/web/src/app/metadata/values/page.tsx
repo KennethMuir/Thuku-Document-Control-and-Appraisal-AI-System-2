@@ -8,6 +8,7 @@ import {
 } from "react";
 
 import Link from "next/link";
+import { apiFetch } from "@/lib/api/client";
 
 import {
   useAuthSession,
@@ -270,7 +271,7 @@ export default function MetadataValuesPage() {
         setMetadataError("");
 
         const response =
-          await fetch(
+          await apiFetch(
             `${API_URL}/api/metadata`,
             {
               credentials: "include",

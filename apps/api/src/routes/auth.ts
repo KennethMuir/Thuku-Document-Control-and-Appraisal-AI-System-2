@@ -560,7 +560,8 @@ router.get(
           : null,
         organizationSelectionRequired:
           organizations.length > 1 && organization === null,
-      });    } catch (error) {
+      });
+    } catch (error) {
       if (error instanceof OrganizationSelectionError) {
         return res.status(error.statusCode).json({
           success: false,

@@ -1,3 +1,5 @@
+import { getSelectedOrganizationId } from "@/lib/organization/selection";
+
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   "http://localhost:4000";
@@ -17,6 +19,14 @@ export const apiFetch = async (
   } = options;
 
   const requestHeaders = new Headers(headers);
+  const selectedOrganizationId = getSelectedOrganizationId();
+
+  if (selectedOrganizationId !== null) {
+    requestHeaders.set(
+      "X-Organization-Id",
+      String(selectedOrganizationId)
+    );
+  }
 
   let body = requestOptions.body;
 
