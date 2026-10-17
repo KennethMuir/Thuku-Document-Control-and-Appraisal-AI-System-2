@@ -1,0 +1,226 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  recoverProvisionalUpload,
+  type RecoveryState,
+  type RecoveryStorage,
+} from "../src/services/provisionalUploadRecovery.js";
+
+type TestState = RecoveryState & {
+  token: string;
+};
+
+function makeState(): TestState {
+  return {
+    token: "isolated-test-token",
+    temporaryPath: "test-provisional-file",
+    sha256Hash: "expected-hash",
+    recoveryReference: "test-stored-copy",
+    recoveryStatus: "RECOVERY_PENDING",
+  };
+}
+
+function makeHarness(options: {
+  fileExists?: boolean;
+  sourceExists?: boolean;
+  actualHash?: string;
+  restoreError?: boolean;
+  persistError?: boolean;
+  deleteError?: boolean;
+} = {}) {
+  const stateWrites: TestState[] = [];
+  const deletedReferences: string[] = [];
+  const restoredPaths: string[] = [];
+  const cleanupErrors: unknown[] = [];
+  const files = new Map<string, string>();
+
+  if (options.fileExists) {
+    files.set("test-provisional-file", "provisional-content");
+  }
+
+  if (options.sourceExists !== false) {
+    files.set("test-stored-copy", "stored-content");
+  }
+
+  const storage: RecoveryStorage = {
+    async exists(reference) {
+      return files.has(reference);
+    },
+
+    async restore(reference, temporaryPath) {
+      if (options.restoreError) {
+        throw new Error("simulated restore failure");
+      }
+
+      if (!files.has(reference)) {
+        throw new Error("source missing");
+      }
+
+      if (files.has(temporaryPath)) {
+        throw new Error("destination already exists");
+      }
+
+      files.set(temporaryPath, files.get(reference)!);
+      restoredPaths.push(temporaryPath);
+    },
+
+    async delete(reference) {
+      if (options.deleteError) {
+        throw new Error("simulated cleanup failure");
+      }
+
+      deletedReferences.push(reference);
+      files.delete(reference);
+    },
+  };
+
+  const state = makeState();
+
+  const dependencies = {
+    storage,
+    fileExists: (path: string) => files.has(path),
+    calculateSha256: async (path: string) => {
+      if (!files.has(path)) {
+        throw new Error("file missing");
+      }
+
+      return options.actualHash ?? "expected-hash";
+    },
+    persist: async (next: TestState) => {
+      if (options.persistError) {
+        throw new Error("simulated state-write failure");
+      }
+
+      stateWrites.push({ ...next });
+    },
+    logCleanupFailure: (error: unknown) => cleanupErrors.push(error),
+  };
+
+  return {
+    state,
+    dependencies,
+    files,
+    stateWrites,
+    deletedReferences,
+    restoredPaths,
+    cleanupErrors,
+  };
+}
+
+test("verified recovery persists pending marker and retains stored copy", async () => {
+  const h = makeHarness();
+
+  const result = await recoverProvisionalUpload(
+    h.state,
+    h.dependencies
+  );
+
+  assert.deepEqual(result, {
+    status: "RECOVERED",
+    cleanupDeferred: true,
+  });
+  assert.equal(h.state.recoveryStatus, "RECOVERY_PENDING");
+  assert.equal(h.state.recoveryReference, "test-stored-copy");
+  assert.equal(h.stateWrites.length, 1);
+  assert.equal(h.stateWrites[0].recoveryStatus, "RECOVERY_PENDING");
+  assert.equal(h.stateWrites[0].recoveryReference, "test-stored-copy");
+  assert.equal(h.deletedReferences.length, 0);
+  assert.equal(h.files.has("test-provisional-file"), true);
+  assert.equal(h.files.has("test-stored-copy"), true);
+});
+
+test("hash mismatch preserves pending state and stored recovery copy", async () => {
+  const h = makeHarness({ actualHash: "wrong-hash" });
+
+  const result = await recoverProvisionalUpload(
+    h.state,
+    h.dependencies
+  );
+
+  assert.deepEqual(result, { status: "HASH_MISMATCH" });
+  assert.equal(h.state.recoveryStatus, "RECOVERY_PENDING");
+  assert.equal(h.state.recoveryReference, "test-stored-copy");
+  assert.equal(h.stateWrites.length, 0);
+  assert.equal(h.deletedReferences.length, 0);
+  assert.equal(h.files.has("test-stored-copy"), true);
+});
+
+test("state-write failure preserves pending state and stored copy", async () => {
+  const h = makeHarness({ persistError: true });
+
+  const result = await recoverProvisionalUpload(
+    h.state,
+    h.dependencies
+  );
+
+  assert.equal(result.status, "STATE_WRITE_FAILED");
+  assert.equal(h.state.recoveryStatus, "RECOVERY_PENDING");
+  assert.equal(h.state.recoveryReference, "test-stored-copy");
+  assert.equal(h.deletedReferences.length, 0);
+  assert.equal(h.files.has("test-stored-copy"), true);
+  assert.equal(h.files.has("test-provisional-file"), true);
+});
+
+test("verified recovery never attempts stored-copy deletion", async () => {
+  const h = makeHarness({ deleteError: true });
+
+  const result = await recoverProvisionalUpload(
+    h.state,
+    h.dependencies
+  );
+
+  assert.deepEqual(result, {
+    status: "RECOVERED",
+    cleanupDeferred: true,
+  });
+  assert.equal(h.state.recoveryStatus, "RECOVERY_PENDING");
+  assert.equal(h.state.recoveryReference, "test-stored-copy");
+  assert.equal(h.stateWrites.length, 1);
+  assert.equal(h.deletedReferences.length, 0);
+  assert.equal(h.cleanupErrors.length, 0);
+  assert.equal(h.files.has("test-provisional-file"), true);
+  assert.equal(h.files.has("test-stored-copy"), true);
+});
+
+test("restore failure preserves pending state and stored copy", async () => {
+  const h = makeHarness({ restoreError: true });
+
+  const result = await recoverProvisionalUpload(
+    h.state,
+    h.dependencies
+  );
+
+  assert.deepEqual(result, { status: "RECOVERY_PENDING" });
+  assert.equal(h.state.recoveryStatus, "RECOVERY_PENDING");
+  assert.equal(h.files.has("test-stored-copy"), true);
+  assert.equal(h.deletedReferences.length, 0);
+});
+
+test("missing recovery source remains pending", async () => {
+  const h = makeHarness({ sourceExists: false });
+
+  const result = await recoverProvisionalUpload(
+    h.state,
+    h.dependencies
+  );
+
+  assert.deepEqual(result, { status: "RECOVERY_PENDING" });
+  assert.equal(h.state.recoveryStatus, "RECOVERY_PENDING");
+  assert.equal(h.deletedReferences.length, 0);
+});
+
+test("non-pending upload is left untouched", async () => {
+  const h = makeHarness();
+  delete h.state.recoveryStatus;
+  delete h.state.recoveryReference;
+
+  const result = await recoverProvisionalUpload(
+    h.state,
+    h.dependencies
+  );
+
+  assert.deepEqual(result, { status: "NOT_PENDING" });
+  assert.equal(h.stateWrites.length, 0);
+  assert.equal(h.deletedReferences.length, 0);
+});

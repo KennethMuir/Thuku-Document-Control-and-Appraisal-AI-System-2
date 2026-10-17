@@ -1,0 +1,85 @@
+-- M27A: Platform identity foundation.
+-- Creates separate platform-administrator grants and security audit events.
+-- Does NOT grant platform access, alter existing sessions, or execute itself.
+-- Apply only through the approved migration process after review.
+
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS platform_admin_grants (
+    id BIGSERIAL PRIMARY KEY,
+
+    user_id BIGINT NOT NULL
+        REFERENCES users(id)
+        ON DELETE RESTRICT,
+
+    granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    granted_by_user_id BIGINT,
+    grant_reason TEXT NOT NULL,
+
+    revoked_at TIMESTAMPTZ,
+    revoked_by_user_id BIGINT,
+    revocation_reason TEXT,
+
+    CONSTRAINT platform_admin_grants_reason_nonempty
+        CHECK (LENGTH(BTRIM(grant_reason)) > 0),
+
+    CONSTRAINT platform_admin_grants_revocation_consistent
+        CHECK (
+            (revoked_at IS NULL
+                AND revoked_by_user_id IS NULL
+                AND revocation_reason IS NULL)
+            OR
+            (revoked_at IS NOT NULL
+                AND revoked_by_user_id IS NOT NULL
+                AND revocation_reason IS NOT NULL
+                AND LENGTH(BTRIM(revocation_reason)) > 0)
+        ),
+
+    CONSTRAINT platform_admin_grants_revocation_time_valid
+        CHECK (revoked_at IS NULL OR revoked_at >= granted_at)
+);
+
+-- Preserve grant history while preventing multiple active grants per user.
+CREATE UNIQUE INDEX IF NOT EXISTS
+    platform_admin_grants_one_active_per_user
+    ON platform_admin_grants (user_id)
+    WHERE revoked_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS
+    platform_admin_grants_user_history_idx
+    ON platform_admin_grants (user_id, granted_at DESC);
+
+CREATE TABLE IF NOT EXISTS platform_security_audit_events (
+    id BIGSERIAL PRIMARY KEY,
+
+    event_type VARCHAR(100) NOT NULL,
+    actor_user_id BIGINT,
+    subject_user_id BIGINT,
+    grant_id BIGINT
+        REFERENCES platform_admin_grants(id)
+        ON DELETE RESTRICT,
+
+    reason TEXT,
+    details JSONB NOT NULL DEFAULT '{}'::JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT platform_security_audit_event_type_nonempty
+        CHECK (LENGTH(BTRIM(event_type)) > 0),
+
+    CONSTRAINT platform_security_audit_details_object
+        CHECK (JSONB_TYPEOF(details) = 'object')
+);
+
+CREATE INDEX IF NOT EXISTS
+    platform_security_audit_events_created_idx
+    ON platform_security_audit_events (created_at DESC);
+
+CREATE INDEX IF NOT EXISTS
+    platform_security_audit_events_actor_idx
+    ON platform_security_audit_events (actor_user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS
+    platform_security_audit_events_subject_idx
+    ON platform_security_audit_events (subject_user_id, created_at DESC);
+
+COMMIT;

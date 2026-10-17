@@ -1,0 +1,314 @@
+-- M27A: Platform identity foundation.
+-- This migration is intentionally unapplied until reviewed and tested.
+-- It does not appoint a platform administrator or change existing records.
+
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS platform_admin_grants (
+    id BIGSERIAL PRIMARY KEY,
+
+    user_id BIGINT NOT NULL
+        REFERENCES users(id) ON DELETE RESTRICT,
+
+    grant_origin VARCHAR(30) NOT NULL,
+    granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    granted_by_user_id BIGINT,
+    grant_reason TEXT NOT NULL,
+
+    revoked_at TIMESTAMPTZ,
+    revoked_by_user_id BIGINT,
+    revocation_reason TEXT,
+
+    CONSTRAINT platform_admin_grants_origin_valid
+        CHECK (grant_origin IN ('INITIAL_BOOTSTRAP', 'PLATFORM_ADMIN')),
+
+    CONSTRAINT platform_admin_grants_actor_valid
+        CHECK (
+            (grant_origin = 'INITIAL_BOOTSTRAP'
+                AND granted_by_user_id IS NULL)
+            OR
+            (grant_origin = 'PLATFORM_ADMIN'
+                AND granted_by_user_id IS NOT NULL)
+        ),
+
+    CONSTRAINT platform_admin_grants_reason_nonempty
+        CHECK (LENGTH(BTRIM(grant_reason)) > 0),
+
+    CONSTRAINT platform_admin_grants_revocation_consistent
+        CHECK (
+            (revoked_at IS NULL
+                AND revoked_by_user_id IS NULL
+                AND revocation_reason IS NULL)
+            OR
+            (revoked_at IS NOT NULL
+                AND revoked_by_user_id IS NOT NULL
+                AND revocation_reason IS NOT NULL
+                AND LENGTH(BTRIM(revocation_reason)) > 0)
+        ),
+
+    CONSTRAINT platform_admin_grants_revocation_time_valid
+        CHECK (revoked_at IS NULL OR revoked_at >= granted_at)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS
+    platform_admin_grants_one_active_per_user
+    ON platform_admin_grants (user_id)
+    WHERE revoked_at IS NULL;
+
+-- Only one bootstrap grant may ever exist, even after revocation.
+CREATE UNIQUE INDEX IF NOT EXISTS
+    platform_admin_grants_single_bootstrap
+    ON platform_admin_grants (grant_origin)
+    WHERE grant_origin = 'INITIAL_BOOTSTRAP';
+
+CREATE INDEX IF NOT EXISTS
+    platform_admin_grants_user_history_idx
+    ON platform_admin_grants (user_id, granted_at DESC);
+
+CREATE TABLE IF NOT EXISTS platform_security_audit_events (
+    id BIGSERIAL PRIMARY KEY,
+    event_type VARCHAR(100) NOT NULL,
+    actor_user_id BIGINT,
+    subject_user_id BIGINT,
+    grant_id BIGINT
+        REFERENCES platform_admin_grants(id) ON DELETE RESTRICT,
+    reason TEXT,
+    details JSONB NOT NULL DEFAULT '{}'::JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT platform_security_audit_event_type_nonempty
+        CHECK (LENGTH(BTRIM(event_type)) > 0),
+
+    CONSTRAINT platform_security_audit_details_object
+        CHECK (JSONB_TYPEOF(details) = 'object')
+);
+
+CREATE INDEX IF NOT EXISTS
+    platform_security_audit_events_created_idx
+    ON platform_security_audit_events (created_at DESC);
+
+CREATE INDEX IF NOT EXISTS
+    platform_security_audit_events_actor_idx
+    ON platform_security_audit_events (actor_user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS
+    platform_security_audit_events_subject_idx
+    ON platform_security_audit_events (subject_user_id, created_at DESC);
+
+
+-- Validate grant creation and revocation before the mutation is accepted.
+CREATE OR REPLACE FUNCTION guard_platform_admin_grant_mutation()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION
+            'Platform grant history cannot be deleted';
+    END IF;
+
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.grant_origin = 'INITIAL_BOOTSTRAP' THEN
+            -- Serialize bootstrap attempts and require a completely empty history.
+            PERFORM pg_advisory_xact_lock(271027, 1);
+
+            IF EXISTS (SELECT 1 FROM platform_admin_grants) THEN
+                RAISE EXCEPTION
+                    'Initial platform bootstrap is no longer available';
+            END IF;
+
+            IF NOT EXISTS (
+                SELECT 1
+                FROM users
+                WHERE id = NEW.user_id
+                  AND is_active = TRUE
+            ) THEN
+                RAISE EXCEPTION
+                    'Bootstrap target account must be active';
+            END IF;
+
+        ELSIF NEW.grant_origin = 'PLATFORM_ADMIN' THEN
+
+            IF NEW.granted_by_user_id IS NULL
+
+               OR NEW.granted_by_user_id = NEW.user_id THEN
+
+                RAISE EXCEPTION
+
+                    'Appointment actor must be distinct from the target';
+
+            END IF;
+            IF NOT EXISTS (
+                SELECT 1
+                FROM platform_admin_grants AS g
+                JOIN users AS actor ON actor.id = g.user_id
+                WHERE g.user_id = NEW.granted_by_user_id
+                  AND g.revoked_at IS NULL
+                  AND actor.is_active = TRUE
+                FOR UPDATE OF g, actor
+            ) THEN
+                RAISE EXCEPTION
+                    'Granting actor must be an active platform administrator';
+            END IF;
+
+            IF NOT EXISTS (
+                SELECT 1
+                FROM users
+                WHERE id = NEW.user_id
+                  AND is_active = TRUE
+            ) THEN
+                RAISE EXCEPTION
+                    'Grant target account must be active';
+            END IF;
+        END IF;
+
+        RETURN NEW;
+    END IF;
+
+    -- An existing grant can only transition once from active to revoked.
+    IF OLD.id IS DISTINCT FROM NEW.id
+       OR OLD.user_id IS DISTINCT FROM NEW.user_id
+       OR OLD.grant_origin IS DISTINCT FROM NEW.grant_origin
+       OR OLD.granted_at IS DISTINCT FROM NEW.granted_at
+       OR OLD.granted_by_user_id IS DISTINCT FROM NEW.granted_by_user_id
+       OR OLD.grant_reason IS DISTINCT FROM NEW.grant_reason THEN
+        RAISE EXCEPTION
+            'Original platform grant details are immutable';
+    END IF;
+
+    IF OLD.revoked_at IS NOT NULL OR NEW.revoked_at IS NULL THEN
+        RAISE EXCEPTION
+            'Only one active-to-revoked transition is permitted';
+    END IF;
+
+    IF NEW.revoked_by_user_id IS NULL
+
+       OR NEW.revoked_by_user_id = NEW.user_id THEN
+
+        RAISE EXCEPTION
+
+            'Revocation actor must be distinct from the target';
+
+    END IF;
+
+
+    IF NOT EXISTS (
+
+        SELECT 1
+
+        FROM platform_admin_grants AS g
+
+        JOIN users AS actor ON actor.id = g.user_id
+
+        WHERE g.user_id = NEW.revoked_by_user_id
+          AND g.revoked_at IS NULL
+          AND actor.is_active = TRUE
+        FOR UPDATE OF g, actor
+    ) THEN
+        RAISE EXCEPTION
+            'Revoking actor must be an active platform administrator';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM users
+        WHERE id = NEW.user_id
+          AND is_active = TRUE
+    ) THEN
+        RAISE EXCEPTION
+            'Grant target account must be active';
+    END IF;
+
+    RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER platform_admin_grants_guard
+BEFORE INSERT OR UPDATE OR DELETE
+ON platform_admin_grants
+FOR EACH ROW
+EXECUTE FUNCTION guard_platform_admin_grant_mutation();
+
+
+-- Automatically audit grant creation and revocation within the same transaction.
+CREATE OR REPLACE FUNCTION audit_platform_admin_grant_mutation()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        INSERT INTO platform_security_audit_events (
+            event_type,
+            actor_user_id,
+            subject_user_id,
+            grant_id,
+            reason,
+            details
+        )
+        VALUES (
+            'PLATFORM_ADMIN_APPOINTED',
+            NEW.granted_by_user_id,
+            NEW.user_id,
+            NEW.id,
+            NEW.grant_reason,
+            jsonb_build_object('grant_origin', NEW.grant_origin)
+        );
+
+        RETURN NEW;
+    END IF;
+
+    INSERT INTO platform_security_audit_events (
+        event_type,
+        actor_user_id,
+        subject_user_id,
+        grant_id,
+        reason,
+        details
+    )
+    VALUES (
+        'PLATFORM_ADMIN_REVOKED',
+        NEW.revoked_by_user_id,
+        NEW.user_id,
+        NEW.id,
+        NEW.revocation_reason,
+        '{}'::JSONB
+    );
+
+    RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER platform_admin_grants_audit
+AFTER INSERT OR UPDATE
+ON platform_admin_grants
+FOR EACH ROW
+EXECUTE FUNCTION audit_platform_admin_grant_mutation();
+
+
+-- Reject ordinary audit-history edits and deletions.
+CREATE OR REPLACE FUNCTION reject_platform_security_audit_mutation()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+    RAISE EXCEPTION
+        'Platform security audit events are append-only';
+END;
+$function$;
+
+CREATE TRIGGER platform_security_audit_immutable
+BEFORE UPDATE OR DELETE
+ON platform_security_audit_events
+FOR EACH ROW
+EXECUTE FUNCTION reject_platform_security_audit_mutation();
+
+COMMIT;
+
+-- IMPORTANT:
+-- The application service must not separately insert grant audit events;
+-- the trigger now creates them automatically.
+-- Bootstrap must use a controlled, one-time procedure and must never be
+-- exposed through organization-level routes.
+-- PostgreSQL superusers can bypass trigger protections. Least-privilege
+-- database roles and disposable-database testing remain mandatory.
+

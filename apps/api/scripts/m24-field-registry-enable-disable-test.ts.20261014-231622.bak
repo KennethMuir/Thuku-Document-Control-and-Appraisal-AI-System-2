@@ -1,0 +1,267 @@
+import "dotenv/config";
+import crypto from "node:crypto";
+import assert from "node:assert/strict";
+import { Pool } from "pg";
+
+const API_URL = process.env.API_URL || "http://localhost:4000";
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const suffix = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+const orgSlug = `m24-field-test-${suffix}`;
+const ownerEmail = `m24-owner-${suffix}@example.invalid`;
+const viewerEmail = `m24-viewer-${suffix}@example.invalid`;
+const ownerFieldKey = `m24_owner_${suffix}`;
+const foreignFieldKey = `m24_foreign_${suffix}`;
+
+let organizationId: string | undefined;
+let foreignOrganizationId: string | undefined;
+let ownerUserId: string | undefined;
+let viewerUserId: string | undefined;
+const sessionIds: string[] = [];
+const checks: string[] = [];
+
+function checkStatus(actual: number, expected: number, label: string) {
+  assert.equal(actual, expected, `${label}: expected HTTP ${expected}, received ${actual}`);
+  checks.push(`${label}: HTTP ${actual}`);
+}
+
+async function createSession(userId: string) {
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+
+  const result = await pool.query(
+    `INSERT INTO sessions (user_id, token_hash, expires_at)
+     VALUES ($1, $2, NOW() + INTERVAL '1 hour')
+     RETURNING id`,
+    [userId, tokenHash],
+  );
+
+  sessionIds.push(String(result.rows[0].id));
+  return rawToken;
+}
+
+async function requestField(
+  fieldKey: string,
+  action: "enable" | "disable",
+  token?: string,
+) {
+  const headers: Record<string, string> = {};
+  if (token) headers.Cookie = `session=${token}`;
+
+  return fetch(
+    `${API_URL}/api/field-registry/${encodeURIComponent(fieldKey)}/${action}`,
+    { method: "POST", headers },
+  );
+}
+
+async function readField(fieldKey: string, orgId: string) {
+  const result = await pool.query(
+    `SELECT is_active
+     FROM field_registry
+     WHERE field_key = $1 AND organization_id = $2`,
+    [fieldKey, orgId],
+  );
+  assert.equal(result.rows.length, 1, `Expected test field ${fieldKey} to exist`);
+  return result.rows[0].is_active as boolean;
+}
+
+async function insertTestField(
+  fieldKey: string,
+  displayName: string,
+  orgId: string,
+  isActive: boolean,
+) {
+  await pool.query(
+    `INSERT INTO field_registry (
+       field_key, display_name, category, data_type,
+       organization_id, is_active
+     )
+     VALUES ($1, $2, 'Administrative', 'text', $3, $4)`,
+    [fieldKey, displayName, orgId, isActive],
+  );
+}
+
+async function main() {
+  try {
+    assert.ok(process.env.DATABASE_URL, "DATABASE_URL is not configured");
+
+    const organization = await pool.query(
+      `INSERT INTO organizations (name, slug, status)
+       VALUES ($1, $2, 'ACTIVE')
+       RETURNING id`,
+      [`M24 Field Registry Test ${suffix}`, orgSlug],
+    );
+    organizationId = String(organization.rows[0].id);
+
+    const foreignOrganization = await pool.query(
+      `INSERT INTO organizations (name, slug, status)
+       VALUES ($1, $2, 'ACTIVE')
+       RETURNING id`,
+      [`M24 Foreign Test ${suffix}`, `m24-foreign-${suffix}`],
+    );
+    foreignOrganizationId = String(foreignOrganization.rows[0].id);
+
+    const owner = await pool.query(
+      `INSERT INTO users (email, password_hash, full_name, role, is_active)
+       VALUES ($1, $2, $3, 'ADMIN', TRUE)
+       RETURNING id`,
+      [ownerEmail, "runtime-test-only-not-a-real-password-hash", "M24 Test Owner"],
+    );
+    ownerUserId = String(owner.rows[0].id);
+
+    const viewer = await pool.query(
+      `INSERT INTO users (email, password_hash, full_name, role, is_active)
+       VALUES ($1, $2, $3, 'VIEWER', TRUE)
+       RETURNING id`,
+      [viewerEmail, "runtime-test-only-not-a-real-password-hash", "M24 Test Viewer"],
+    );
+    viewerUserId = String(viewer.rows[0].id);
+
+    await pool.query(
+      `INSERT INTO organization_memberships
+         (organization_id, user_id, role, is_active)
+       VALUES ($1, $2, 'OWNER', TRUE), ($1, $3, 'VIEWER', TRUE)`,
+      [organizationId, ownerUserId, viewerUserId],
+    );
+
+    await insertTestField(ownerFieldKey, "M24 Owner Test Field", organizationId, false);
+    await insertTestField(
+      foreignFieldKey,
+      "M24 Foreign Test Field",
+      foreignOrganizationId,
+      true,
+    );
+
+    const ownerToken = await createSession(ownerUserId);
+    const viewerToken = await createSession(viewerUserId);
+
+    console.log("\n=== FIELD REGISTRY ENABLE/DISABLE RUNTIME TEST ===");
+    console.log(`API: ${API_URL}`);
+    console.log("Temporary test data created.");
+
+    // Owner: enable an inactive field.
+    let response = await requestField(ownerFieldKey, "enable", ownerToken);
+    if (response.status !== 200) {
+      console.error("Owner enable response body:", await response.clone().text());
+    }
+    checkStatus(response.status, 200, "Owner enables own field");
+    assert.equal(await readField(ownerFieldKey, organizationId), true);
+    checks.push("Owner enable persisted in database");
+
+    // Repeated enable follows the existing idempotent contract.
+    response = await requestField(ownerFieldKey, "enable", ownerToken);
+    checkStatus(response.status, 200, "Repeated enable");
+    assert.equal(await readField(ownerFieldKey, organizationId), true);
+
+    // Owner: disable the active field.
+    response = await requestField(ownerFieldKey, "disable", ownerToken);
+    checkStatus(response.status, 200, "Owner disables own field");
+    assert.equal(await readField(ownerFieldKey, organizationId), false);
+    checks.push("Owner disable persisted in database");
+
+    // Repeated disable follows the route's not-found/already-inactive contract.
+    response = await requestField(ownerFieldKey, "disable", ownerToken);
+    checkStatus(response.status, 404, "Repeated disable");
+
+    // System fields must not be changeable.
+    const systemBefore = await pool.query(
+      `SELECT is_active FROM field_registry
+       WHERE field_key = 'access_restriction' AND organization_id IS NULL
+       LIMIT 1`,
+    );
+    assert.equal(systemBefore.rows.length, 1, "Expected access_restriction system field");
+
+    response = await requestField("access_restriction", "enable", ownerToken);
+    checkStatus(response.status, 403, "System field enable blocked");
+    response = await requestField("access_restriction", "disable", ownerToken);
+    checkStatus(response.status, 403, "System field disable blocked");
+
+    const systemAfter = await pool.query(
+      `SELECT is_active FROM field_registry
+       WHERE field_key = 'access_restriction' AND organization_id IS NULL
+       LIMIT 1`,
+    );
+    assert.equal(systemAfter.rows[0].is_active, systemBefore.rows[0].is_active);
+    checks.push("System field state unchanged");
+
+    // A foreign-organization field must not be discoverable or changed.
+    response = await requestField(foreignFieldKey, "enable", ownerToken);
+    checkStatus(response.status, 404, "Foreign field enable blocked");
+    response = await requestField(foreignFieldKey, "disable", ownerToken);
+    checkStatus(response.status, 404, "Foreign field disable blocked");
+    assert.equal(await readField(foreignFieldKey, foreignOrganizationId), true);
+    checks.push("Foreign field remains active and unchanged");
+
+    // Viewer must not change fields, regardless of the current field state.
+    response = await requestField(ownerFieldKey, "enable", viewerToken);
+    checkStatus(response.status, 403, "Viewer enable blocked");
+    response = await requestField(ownerFieldKey, "disable", viewerToken);
+    checkStatus(response.status, 403, "Viewer disable blocked");
+    assert.equal(await readField(ownerFieldKey, organizationId), false);
+    checks.push("Viewer requests left field unchanged");
+
+    // Unauthenticated requests must be rejected.
+    response = await requestField(ownerFieldKey, "enable");
+    checkStatus(response.status, 401, "Unauthenticated enable rejected");
+    response = await requestField(ownerFieldKey, "disable");
+    checkStatus(response.status, 401, "Unauthenticated disable rejected");
+
+    console.log("\n=== PASSED CHECKS ===");
+    for (const item of checks) console.log(`PASS: ${item}`);
+    console.log(`\nAll ${checks.length} checks passed.`);
+  } finally {
+    // Cleanup is limited to records created by this script.
+    try {
+      if (sessionIds.length) {
+        await pool.query(`DELETE FROM sessions WHERE id = ANY($1::bigint[])`, [sessionIds]);
+      }
+
+      if (organizationId && foreignOrganizationId) {
+        await pool.query(
+          `DELETE FROM field_registry
+           WHERE field_key = ANY($1::text[])
+             AND organization_id = ANY($2::bigint[])`,
+          [
+            [ownerFieldKey, foreignFieldKey],
+            [organizationId, foreignOrganizationId],
+          ],
+        );
+      }
+
+      const userIds = [ownerUserId, viewerUserId].filter(
+        (id): id is string => Boolean(id),
+      );
+
+      if (userIds.length) {
+        await pool.query(
+          `DELETE FROM organization_memberships WHERE user_id = ANY($1::bigint[])`,
+          [userIds],
+        );
+      }
+
+      const organizationIds = [organizationId, foreignOrganizationId].filter(
+        (id): id is string => Boolean(id),
+      );
+
+      if (organizationIds.length) {
+        await pool.query(
+          `DELETE FROM organizations WHERE id = ANY($1::bigint[])`,
+          [organizationIds],
+        );
+      }
+
+      if (userIds.length) {
+        await pool.query(`DELETE FROM users WHERE id = ANY($1::bigint[])`, [userIds]);
+      }
+
+      console.log("\nCleanup completed for this test's temporary records.");
+    } finally {
+      await pool.end();
+    }
+  }
+}
+
+main().catch((error) => {
+  console.error("\nFIELD REGISTRY RUNTIME TEST FAILED");
+  console.error(error);
+  process.exitCode = 1;
+});

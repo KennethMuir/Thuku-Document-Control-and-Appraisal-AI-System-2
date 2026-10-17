@@ -330,10 +330,53 @@ export async function findAuthenticatedUser(
   };
 }
 
-export async function findAuthenticatedOrganization(
+export class OrganizationSelectionError extends Error {
+  constructor(
+    public readonly statusCode: 403 | 409,
+    public readonly code: string,
+    message: string
+  ) {
+    super(message);
+    this.name = "OrganizationSelectionError";
+  }
+}
+
+export function getSelectedOrganizationId(
+  req: Request
+): number | undefined {
+  const raw = req.header("X-Organization-Id");
+
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  const value = raw.trim();
+
+  if (!/^[1-9]\d*$/.test(value)) {
+    throw new OrganizationSelectionError(
+      403,
+      "INVALID_ORGANIZATION_SELECTION",
+      "The selected organization ID is invalid."
+    );
+  }
+
+  const organizationId = Number(value);
+
+  if (!Number.isSafeInteger(organizationId)) {
+    throw new OrganizationSelectionError(
+      403,
+      "INVALID_ORGANIZATION_SELECTION",
+      "The selected organization ID is invalid."
+    );
+  }
+
+  return organizationId;
+}
+
+export async function findAuthenticatedOrganizations(
   pool: Pool,
   userId: number
-): Promise<AuthOrganization | null> {
+): Promise<AuthOrganization[]> {
   const result = await pool.query<{
     membership_id: number;
     organization_id: number;
@@ -361,28 +404,59 @@ export async function findAuthenticatedOrganization(
           ELSE 5
         END,
         om.id
-      LIMIT 1
     `,
     [userId]
   );
 
-  const row = result.rows[0];
+  return result.rows.map((row) => ({
+    organizationId: Number(row.organization_id),
+    organizationName: row.organization_name,
+    membershipId: Number(row.membership_id),
+    role: row.role,
+  }));
+}
 
-  if (!row) {
+export async function findAuthenticatedOrganization(
+  pool: Pool,
+  userId: number,
+  selectedOrganizationId?: number
+): Promise<AuthOrganization | null> {
+  const organizations = await findAuthenticatedOrganizations(
+    pool,
+    userId
+  );
+
+  if (selectedOrganizationId !== undefined) {
+    const selected = organizations.find(
+      (organization) =>
+        organization.organizationId === selectedOrganizationId
+    );
+
+    if (!selected) {
+      throw new OrganizationSelectionError(
+        403,
+        "ORGANIZATION_ACCESS_DENIED",
+        "You do not have an active membership in the selected organization."
+      );
+    }
+
+    return selected;
+  }
+
+  if (organizations.length === 0) {
     return null;
   }
 
-  return {
-    organizationId:
-      Number(row.organization_id),
-    organizationName:
-      row.organization_name,
-    membershipId:
-      Number(row.membership_id),
-    role: row.role,
-  };
-}
+  if (organizations.length > 1) {
+    throw new OrganizationSelectionError(
+      409,
+      "ORGANIZATION_SELECTION_REQUIRED",
+      "Select an organization before accessing organization data."
+    );
+  }
 
+  return organizations[0] ?? null;
+}
 export function requireAuthentication(
   pool: Pool
 ) {
@@ -449,20 +523,25 @@ export function requireOrganizationContext(
 
       if (!authUser) {
         res.status(401).json({
-          error:
-            "Authentication required.",
+          success: false,
+          error: "Authentication required.",
         });
         return;
       }
 
+      const selectedOrganizationId =
+        getSelectedOrganizationId(req);
+
       const organization =
         await findAuthenticatedOrganization(
           pool,
-          authUser.id
+          authUser.id,
+          selectedOrganizationId
         );
 
       if (!organization) {
         res.status(403).json({
+          success: false,
           error:
             "No active organization membership is available for this account.",
         });
@@ -474,19 +553,27 @@ export function requireOrganizationContext(
 
       next();
     } catch (error) {
+      if (error instanceof OrganizationSelectionError) {
+        res.status(error.statusCode).json({
+          success: false,
+          code: error.code,
+          error: error.message,
+        });
+        return;
+      }
+
       console.error(
         "Organization context middleware error:",
         error
       );
 
       res.status(500).json({
-        error:
-          "Organization context could not be resolved.",
+        success: false,
+        error: "Organization context could not be resolved.",
       });
     }
   };
 }
-
 /**
  * Converts the authoritative organization role into the effective
  * legacy permission level used by existing ADMIN-level routes.

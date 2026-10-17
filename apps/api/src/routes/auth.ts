@@ -14,6 +14,9 @@ import {
   clearSessionCookie,
   findAuthenticatedUser,
   findAuthenticatedOrganization,
+  findAuthenticatedOrganizations,
+  getSelectedOrganizationId,
+  OrganizationSelectionError,
 } from "../middleware/auth.js";
 
 export function createAuthRouter(pool: Pool) {
@@ -518,27 +521,54 @@ router.get(
         });
       }
 
-      const organization =
-        await findAuthenticatedOrganization(
+      const organizations =
+        await findAuthenticatedOrganizations(
           pool,
           authenticated.user.id
         );
 
+      const selectedOrganizationId =
+        getSelectedOrganizationId(req);
+
+      let organization = null;
+
+      if (selectedOrganizationId !== undefined) {
+        organization = await findAuthenticatedOrganization(
+          pool,
+          authenticated.user.id,
+          selectedOrganizationId
+        );
+      } else if (organizations.length === 1) {
+        organization = organizations[0] ?? null;
+      }
+
       return res.json({
         success: true,
         authenticated: true,
-        user:
-          authenticated.user,
+        user: authenticated.user,
+        organizations: organizations.map((item) => ({
+          id: item.organizationId,
+          name: item.organizationName,
+          role: item.role,
+        })),
         organization: organization
           ? {
-              id:
-                organization.organizationId,
+              id: organization.organizationId,
               name: organization.organizationName,
               role: organization.role,
             }
           : null,
-      });
-    } catch (error) {
+        organizationSelectionRequired:
+          organizations.length > 1 && organization === null,
+      });    } catch (error) {
+      if (error instanceof OrganizationSelectionError) {
+        return res.status(error.statusCode).json({
+          success: false,
+          authenticated: true,
+          code: error.code,
+          error: error.message,
+        });
+      }
       console.error(
         "Auth session lookup failed:",
         error

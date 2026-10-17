@@ -5,6 +5,10 @@ import multer from "multer";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { writeAtomicTextFile } from "../services/atomicFileWrite.js";
+import {
+  recoverProvisionalUpload,
+} from "../services/provisionalUploadRecovery.js";
 
 import {
   requireAuthentication,
@@ -21,8 +25,9 @@ import {
 import {
   generateMetadataReferenceCode,
 } from "../services/metadataReferenceCode.js";
-import {
-  LocalFileStorage,
+import type {
+  FileStorageService,
+  StoredDocument,
 } from "../services/storage.js";
 import { calculateSha256 } from "../services/fileIntegrity.js";
 
@@ -61,6 +66,10 @@ type ProvisionalUpload = {
     conflictingFields: string[];
   };
   createdAt: string;
+  recoveryReference?: string;
+  recoveryProvider?: "LOCAL" | "SERVER" | "CLOUD";
+  recoveryFilename?: string;
+  recoveryStatus?: "RECOVERY_PENDING";
 };
 
 function provisionalStatePath(
@@ -72,10 +81,9 @@ function provisionalStatePath(
 async function writeProvisionalUpload(
   upload: ProvisionalUpload
 ): Promise<void> {
-  await fs.promises.writeFile(
+  await writeAtomicTextFile(
     provisionalStatePath(upload.temporaryPath),
-    JSON.stringify(upload),
-    "utf8"
+    JSON.stringify(upload)
   );
 }
 
@@ -217,7 +225,7 @@ function validateRequiredMetadata(
 export function createDocumentsUploadRouter(
   pool: Pool,
   upload: multer.Multer,
-  localFileStorage: LocalFileStorage,
+  localFileStorage: FileStorageService,
   findBestMetadataMatch: Function,
   temporaryRoot: string
 ) {
@@ -1039,14 +1047,49 @@ export function createDocumentsUploadRouter(
         });
       }
 
-      if (
-        !fs.existsSync(
-          provisional.temporaryPath
-        )
-      ) {
-        await deleteProvisionalUpload(
-          provisional
+      if (provisional.recoveryStatus === "RECOVERY_PENDING") {
+        const recoveryResult = await recoverProvisionalUpload(
+          provisional,
+          {
+            storage: localFileStorage,
+            persist: writeProvisionalUpload,
+          }
         );
+
+        if (recoveryResult.status === "HASH_MISMATCH") {
+          return res.status(409).json({
+            success: false,
+            error: "UPLOAD_RECOVERY_HASH_MISMATCH",
+            message:
+              "The recovered file does not match the original upload. The recovery state and stored recovery copy have been preserved.",
+          });
+        }
+
+        if (recoveryResult.status === "STATE_WRITE_FAILED") {
+          console.error(
+            "Provisional upload recovery state could not be persisted; stored recovery data has been preserved:",
+            recoveryResult.error
+          );
+        }
+
+        if (
+          recoveryResult.status === "RECOVERY_PENDING" ||
+          recoveryResult.status === "STATE_WRITE_FAILED"
+        ) {
+          return res.status(409).json({
+            success: false,
+            error: "UPLOAD_RECOVERY_PENDING",
+            message:
+              "Upload recovery could not be completed safely. The recovery state has been preserved.",
+          });
+        }
+      }
+
+      if (
+        !fs.existsSync(provisional.temporaryPath) &&
+        provisional.recoveryStatus !== "RECOVERY_PENDING"
+      ) {
+        await deleteProvisionalUpload(provisional);
 
         return res.status(400).json({
           success: false,
@@ -1055,12 +1098,10 @@ export function createDocumentsUploadRouter(
         });
       }
 
-      const client =
-        await pool.connect();
-
-      let targetPath:
-        | string
-        | null = null;
+      const client = await pool.connect();
+      let storedReference: string | null = null;
+      let storedDocument: StoredDocument | null = null;
+      let storedFilename: string | null = null;
 
       try {
         await client.query("BEGIN");
@@ -1476,16 +1517,37 @@ export function createDocumentsUploadRouter(
           }
         }
 
-        const storedFilename =
-          `${documentCode}${provisional.extension}`;
+        if (provisional.recoveryStatus === "RECOVERY_PENDING") {
+          if (
+            !provisional.recoveryReference ||
+            !provisional.recoveryProvider ||
+            !provisional.recoveryFilename
+          ) {
+            throw new Error(
+              "Upload recovery metadata is incomplete; confirmation is blocked."
+            );
+          }
 
-        const storedDocument =
-          await localFileStorage.store(
+          storedFilename = provisional.recoveryFilename;
+          storedDocument = {
+            provider: provisional.recoveryProvider,
+            reference: provisional.recoveryReference,
+          };
+          storedReference = storedDocument.reference;
+        } else {
+          storedFilename = `${documentCode}${provisional.extension}`;
+          storedDocument = await localFileStorage.store(
             provisional.temporaryPath,
             storedFilename
           );
+          storedReference = storedDocument.reference;
+        }
 
-        targetPath = localFileStorage.resolve(storedDocument.reference);
+        if (!storedDocument || !storedFilename) {
+          throw new Error(
+            "The stored document reference could not be established."
+          );
+        }
 
         const documentResult =
           await client.query(
@@ -1598,7 +1660,7 @@ export function createDocumentsUploadRouter(
             documentId,
             provisional.originalName,
             storedFilename,
-            targetPath,
+            storedReference,
             storedDocument.provider,
             storedDocument.reference,
             provisional.mimeType,
@@ -1744,23 +1806,42 @@ export function createDocumentsUploadRouter(
           .query("ROLLBACK")
           .catch(() => undefined);
 
-        if (
-          targetPath &&
-          fs.existsSync(targetPath)
-        ) {
-          await fs.promises
-            .rename(
-              targetPath,
-              provisional.temporaryPath
-            )
-            .catch((restoreError) => {
-              console.error(
-                "Unable to restore provisional upload after confirmation failure:",
-                restoreError
-              );
-            });
+        if (storedReference && storedDocument && storedFilename) {
+          provisional.recoveryReference = storedReference;
+          provisional.recoveryProvider = storedDocument.provider;
+          provisional.recoveryFilename = storedFilename;
+          provisional.recoveryStatus = "RECOVERY_PENDING";
 
-          targetPath = null;
+          let recoveryStatePersisted = false;
+
+          try {
+            await writeProvisionalUpload(provisional);
+            recoveryStatePersisted = true;
+          } catch (stateError) {
+            console.error(
+              "CRITICAL: Unable to persist provisional upload recovery metadata. The stored file has been preserved; automatic retry is unsafe until the metadata is recovered.",
+              stateError
+            );
+          }
+
+          if (recoveryStatePersisted) {
+            const recoveryResult = await recoverProvisionalUpload(
+              provisional,
+              {
+                storage: localFileStorage,
+                persist: writeProvisionalUpload,
+              }
+            );
+
+            if (recoveryResult.status !== "RECOVERED") {
+              console.error(
+                "Provisional upload recovery remains unresolved:",
+                recoveryResult.status
+              );
+            }
+          }
+
+          storedReference = null;
         }
 
         if (
@@ -1939,6 +2020,15 @@ export function createDocumentsUploadRouter(
           success: false,
           error:
             "The provisional upload could not be found",
+        });
+      }
+
+      if (provisional.recoveryStatus === "RECOVERY_PENDING") {
+        return res.status(409).json({
+          success: false,
+          error: "UPLOAD_RECOVERY_PENDING",
+          message:
+            "This upload cannot be cancelled while file recovery is pending. Its state and stored file have been preserved.",
         });
       }
 

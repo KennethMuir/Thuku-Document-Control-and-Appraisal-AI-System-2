@@ -1,4 +1,5 @@
-import { promises as fs } from "node:fs";
+import { constants, createReadStream, promises as fs } from "node:fs";
+import type { Readable } from "node:stream";
 import path from "node:path";
 
 export type StorageProvider =
@@ -21,9 +22,12 @@ export interface FileStorageService {
     reference: string
   ): Promise<boolean>;
 
-  resolve(
-    reference: string
-  ): string;
+  openReadStream(reference: string): Readable;
+
+  restore(
+    reference: string,
+    temporaryPath: string
+  ): Promise<void>;
 
   delete(
     reference: string
@@ -70,6 +74,25 @@ export class LocalFileStorage
     } catch {
       return false;
     }
+  }
+
+  openReadStream(reference: string): Readable {
+    return createReadStream(this.resolve(reference));
+  }
+
+  async restore(
+    reference: string,
+    temporaryPath: string
+  ): Promise<void> {
+    const sourcePath = this.resolve(reference);
+
+    // Copy without overwriting the destination. Keep the stored source
+    // until the caller has verified the restored file's integrity.
+    await fs.copyFile(
+      sourcePath,
+      temporaryPath,
+      constants.COPYFILE_EXCL
+    );
   }
 
   resolve(

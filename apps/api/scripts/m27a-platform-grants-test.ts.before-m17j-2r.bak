@@ -1,0 +1,210 @@
+import assert from "node:assert/strict";
+import type { Pool, PoolClient } from "pg";
+
+import {
+  appointPlatformAdmin,
+  revokePlatformAdmin,
+} from "../src/services/platformAdminGrants.js";
+
+type MockOptions = {
+  actorActive?: boolean;
+  targetActive?: boolean;
+  actorHasGrant?: boolean;
+  targetHasGrant?: boolean;
+  failAudit?: boolean;
+};
+
+function makePool(options: MockOptions = {}) {
+  const calls: string[] = [];
+  let released = false;
+
+  const client = {
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      calls.push(normalized);
+
+      if (normalized === "BEGIN" || normalized === "COMMIT" ||
+          normalized === "ROLLBACK") {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (normalized.includes("FROM users") &&
+          normalized.includes("FOR UPDATE")) {
+        return {
+          rows: [
+            { id: 10, is_active: options.actorActive ?? true },
+            { id: 20, is_active: options.targetActive ?? true },
+          ],
+          rowCount: 2,
+        };
+      }
+
+      if (normalized.includes("FROM platform_admin_grants") &&
+          normalized.includes("WHERE user_id = $1")) {
+        const userId = arguments[1]?.[0];
+
+        if (userId === 10) {
+          return {
+            rows: options.actorHasGrant === false ? [] : [{ id: 100 }],
+            rowCount: options.actorHasGrant === false ? 0 : 1,
+          };
+        }
+
+        if (userId === 20) {
+          return {
+            rows: options.targetHasGrant ? [{ id: 200 }] : [],
+            rowCount: options.targetHasGrant ? 1 : 0,
+          };
+        }
+      }
+
+      if (normalized.includes("INSERT INTO platform_admin_grants")) {
+        return { rows: [{ id: 300 }], rowCount: 1 };
+      }
+
+      if (normalized.includes("INSERT INTO platform_security_audit_events")) {
+        if (options.failAudit) {
+          throw new Error("Simulated audit insert failure");
+        }
+        return { rows: [], rowCount: 1 };
+      }
+
+      if (normalized.includes("UPDATE platform_admin_grants")) {
+        return { rows: [], rowCount: 1 };
+      }
+
+      throw new Error(`Unexpected mock SQL: ${normalized}`);
+    },
+    release() {
+      released = true;
+    },
+  };
+
+  const pool = {
+    async connect() {
+      return client;
+    },
+  } as unknown as Pool;
+
+  return {
+    pool,
+    calls,
+    released: () => released,
+  };
+}
+
+const input = {
+  actorUserId: 10,
+  targetUserId: 20,
+  reason: "Approved platform administration change",
+};
+
+async function main() {
+  const passed: string[] = [];
+
+  {
+    const mock = makePool();
+    const grantId = await appointPlatformAdmin(mock.pool, input);
+
+    assert.equal(grantId, 300);
+    assert(mock.calls.some((sql) => sql === "BEGIN"));
+    assert(mock.calls.some((sql) => sql.includes("INSERT INTO platform_admin_grants")));
+    assert(mock.calls.some((sql) => sql.includes("INSERT INTO platform_security_audit_events")));
+    assert(mock.calls.some((sql) => sql === "COMMIT"));
+    assert(mock.released());
+    passed.push("Appointment writes grant and audit in one transaction");
+  }
+
+  {
+    const mock = makePool({ actorHasGrant: false });
+
+    await assert.rejects(
+      appointPlatformAdmin(mock.pool, input),
+      /active platform administrator grant is required/
+    );
+
+    assert(mock.calls.some((sql) => sql === "ROLLBACK"));
+    assert(!mock.calls.some((sql) => sql.includes("INSERT INTO platform_admin_grants")));
+    assert(mock.released());
+    passed.push("Appointment denied and rolled back without actor grant");
+  }
+
+  {
+    const mock = makePool({ targetHasGrant: true });
+
+    await assert.rejects(
+      appointPlatformAdmin(mock.pool, input),
+      /already has an active platform grant/
+    );
+
+    assert(mock.calls.some((sql) => sql === "ROLLBACK"));
+    assert(mock.released());
+    passed.push("Duplicate active appointment denied");
+  }
+
+  {
+    const mock = makePool({ failAudit: true });
+
+    await assert.rejects(
+      appointPlatformAdmin(mock.pool, input),
+      /Simulated audit insert failure/
+    );
+
+    assert(mock.calls.some((sql) => sql === "ROLLBACK"));
+    assert(!mock.calls.some((sql) => sql === "COMMIT"));
+    assert(mock.released());
+    passed.push("Audit failure rolls back appointment");
+  }
+
+  {
+    const mock = makePool();
+    await revokePlatformAdmin(mock.pool, input);
+
+    assert(mock.calls.some((sql) => sql.includes("UPDATE platform_admin_grants")));
+    assert(mock.calls.some((sql) => sql.includes("INSERT INTO platform_security_audit_events")));
+    assert(mock.calls.some((sql) => sql === "COMMIT"));
+    assert(mock.released());
+    passed.push("Revocation and audit commit in one transaction");
+  }
+
+  {
+    const mock = makePool({ actorHasGrant: false });
+
+    await assert.rejects(
+      revokePlatformAdmin(mock.pool, input),
+      /active platform administrator grant is required/
+    );
+
+    assert(mock.calls.some((sql) => sql === "ROLLBACK"));
+    assert(!mock.calls.some((sql) => sql.includes("UPDATE platform_admin_grants")));
+    assert(mock.released());
+    passed.push("Revocation denied and rolled back without actor grant");
+  }
+
+  {
+    const mock = makePool();
+
+    await assert.rejects(
+      appointPlatformAdmin(mock.pool, {
+        ...input,
+        reason: "   ",
+      }),
+      /non-empty reason/
+    );
+
+    assert.equal(mock.calls.length, 0);
+    assert.equal(mock.released(), false);
+    passed.push("Invalid reason rejected before database connection");
+  }
+
+  console.log("\nM27A platform-grant service tests:");
+  for (const item of passed) {
+    console.log(`  PASS: ${item}`);
+  }
+  console.log(`\n${passed.length} tests passed.`);
+}
+
+main().catch((error) => {
+  console.error("Platform-grant tests failed:", error);
+  process.exitCode = 1;
+});

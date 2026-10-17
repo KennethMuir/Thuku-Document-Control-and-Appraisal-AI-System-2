@@ -1,0 +1,107 @@
+-- M27A: Platform identity foundation.
+-- Creates separate platform-administrator grants and security audit events.
+-- This migration must be reviewed before execution.
+-- It does not grant platform access or bootstrap an administrator.
+
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS platform_admin_grants (
+    id BIGSERIAL PRIMARY KEY,
+
+    user_id BIGINT NOT NULL
+        REFERENCES users(id)
+        ON DELETE RESTRICT,
+
+    grant_origin VARCHAR(30) NOT NULL,
+    granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    granted_by_user_id BIGINT,
+    grant_reason TEXT NOT NULL,
+
+    revoked_at TIMESTAMPTZ,
+    revoked_by_user_id BIGINT,
+    revocation_reason TEXT,
+
+    CONSTRAINT platform_admin_grants_origin_valid
+        CHECK (grant_origin IN ('INITIAL_BOOTSTRAP', 'PLATFORM_ADMIN')),
+
+    CONSTRAINT platform_admin_grants_actor_valid
+        CHECK (
+            (grant_origin = 'INITIAL_BOOTSTRAP'
+                AND granted_by_user_id IS NULL)
+            OR
+            (grant_origin = 'PLATFORM_ADMIN'
+                AND granted_by_user_id IS NOT NULL)
+        ),
+
+    CONSTRAINT platform_admin_grants_reason_nonempty
+        CHECK (LENGTH(BTRIM(grant_reason)) > 0),
+
+    CONSTRAINT platform_admin_grants_revocation_consistent
+        CHECK (
+            (revoked_at IS NULL
+                AND revoked_by_user_id IS NULL
+                AND revocation_reason IS NULL)
+            OR
+            (revoked_at IS NOT NULL
+                AND revoked_by_user_id IS NOT NULL
+                AND revocation_reason IS NOT NULL
+                AND LENGTH(BTRIM(revocation_reason)) > 0)
+        ),
+
+    CONSTRAINT platform_admin_grants_revocation_time_valid
+        CHECK (revoked_at IS NULL OR revoked_at >= granted_at)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS
+    platform_admin_grants_one_active_per_user
+    ON platform_admin_grants (user_id)
+    WHERE revoked_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS
+    platform_admin_grants_user_history_idx
+    ON platform_admin_grants (user_id, granted_at DESC);
+
+CREATE TABLE IF NOT EXISTS platform_security_audit_events (
+    id BIGSERIAL PRIMARY KEY,
+
+    event_type VARCHAR(100) NOT NULL,
+    actor_user_id BIGINT,
+    subject_user_id BIGINT,
+    grant_id BIGINT
+        REFERENCES platform_admin_grants(id)
+        ON DELETE RESTRICT,
+
+    reason TEXT,
+    details JSONB NOT NULL DEFAULT '{}'::JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT platform_security_audit_event_type_nonempty
+        CHECK (LENGTH(BTRIM(event_type)) > 0),
+
+    CONSTRAINT platform_security_audit_details_object
+        CHECK (JSONB_TYPEOF(details) = 'object')
+);
+
+CREATE INDEX IF NOT EXISTS
+    platform_security_audit_events_created_idx
+    ON platform_security_audit_events (created_at DESC);
+
+CREATE INDEX IF NOT EXISTS
+    platform_security_audit_events_actor_idx
+    ON platform_security_audit_events (actor_user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS
+    platform_security_audit_events_subject_idx
+    ON platform_security_audit_events (subject_user_id, created_at DESC);
+
+COMMIT;
+
+-- Application requirement:
+-- Grant/revoke mutations and their audit events must use the same
+-- database transaction. Bootstrap must lock a shared bootstrap guard,
+-- verify no prior platform grant exists, verify the target account is
+-- active, insert exactly one INITIAL_BOOTSTRAP grant and its audit event,
+-- then commit. Any failure must roll back both writes.
+-- Normal appointments require a separately authorized platform actor.
+-- Database permissions must prevent untrusted callers from writing these
+-- tables directly; this file alone does not enforce audit immutability.

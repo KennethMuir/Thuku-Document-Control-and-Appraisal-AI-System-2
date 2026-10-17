@@ -8,7 +8,7 @@ import {
 
 import type { Pool } from "pg";
 
-import { LocalFileStorage } from "../services/storage.js";
+import type { FileStorageService } from "../services/storage.js";
 
 import {
   requireAuthentication,
@@ -19,7 +19,7 @@ import {
 
 export function createDocumentsRouter(
   pool: Pool,
-  localFileStorage?: LocalFileStorage
+  localFileStorage?: FileStorageService
 ) {
   const router = Router();
 
@@ -1699,11 +1699,6 @@ router.get(
         });
       }
 
-      const localPath =
-        localFileStorage.resolve(
-          storageReference
-        );
-
       res.setHeader(
         "Content-Type",
         file.mime_type ||
@@ -1717,9 +1712,30 @@ router.get(
         ).replace(/"/g, "")}"`
       );
 
-      return res.sendFile(
-        localPath
-      );
+      const fileStream =
+        localFileStorage.openReadStream(storageReference);
+
+      fileStream.on("error", (streamError) => {
+        console.error(
+          "Document file stream failed:",
+          streamError
+        );
+
+        if (!res.headersSent) {
+          res.status(500).json({
+            success: false,
+            error: "Unable to retrieve document file",
+          });
+        } else {
+          res.destroy(
+            streamError instanceof Error
+              ? streamError
+              : new Error("Document file stream failed")
+          );
+        }
+      });
+
+      return fileStream.pipe(res);
     } catch (error) {
       console.error(
         "Document file retrieval failed:",

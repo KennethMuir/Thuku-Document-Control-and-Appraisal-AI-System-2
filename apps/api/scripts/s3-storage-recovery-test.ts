@@ -1,0 +1,71 @@
+import assert from "node:assert/strict";
+import { once } from "node:events";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+
+import { LocalFileStorage } from "../src/services/storage.js";
+
+test("local storage stores, streams, and restores without deleting content", async () => {
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "document-storage-test-"));
+
+  try {
+    const storageRoot = path.join(sandbox, "stored");
+    const temporaryRoot = path.join(sandbox, "temporary");
+    const sourcePath = path.join(temporaryRoot, "provisional-upload.tmp");
+
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(storageRoot, { recursive: true });
+    await mkdir(temporaryRoot, { recursive: true });
+
+    const contents = "isolated storage recovery test";
+    await writeFile(sourcePath, contents, "utf8");
+
+    const storage = new LocalFileStorage(storageRoot);
+    const stored = await storage.store(sourcePath, "test-document.txt");
+
+    assert.equal(stored.provider, "LOCAL");
+    assert.equal(await readFile(stored.reference, "utf8"), contents);
+    assert.equal(await storage.exists(stored.reference), true);
+
+    const stream = storage.openReadStream(stored.reference);
+    const chunks: Buffer[] = [];
+    stream.on("data", (chunk: Buffer | string) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    await once(stream, "end");
+    assert.equal(Buffer.concat(chunks).toString("utf8"), contents);
+
+    await storage.restore(stored.reference, sourcePath);
+    assert.equal(await readFile(sourcePath, "utf8"), contents);
+    assert.equal(await storage.exists(stored.reference), true);
+
+    const missingReference = path.join(storageRoot, "does-not-exist.txt");
+    const protectedPath = path.join(temporaryRoot, "protected.txt");
+    await writeFile(protectedPath, "do not overwrite", "utf8");
+
+    await assert.rejects(storage.restore(missingReference, protectedPath));
+    assert.equal(await readFile(protectedPath, "utf8"), "do not overwrite");
+
+    const secondSourcePath = path.join(temporaryRoot, "second-provisional.tmp");
+    await writeFile(secondSourcePath, "original stored content", "utf8");
+    const secondStored = await storage.store(secondSourcePath, "second-document.txt");
+    const occupiedDestination = path.join(temporaryRoot, "occupied-destination.tmp");
+    await writeFile(occupiedDestination, "keep destination content", "utf8");
+
+    await assert.rejects(storage.restore(secondStored.reference, occupiedDestination));
+    assert.equal(await readFile(occupiedDestination, "utf8"), "keep destination content");
+    assert.equal(await readFile(secondStored.reference, "utf8"), "original stored content");
+    assert.equal(await storage.exists(secondStored.reference), true);
+
+    console.log("PASS: store preserves contents and returns LOCAL reference.");
+    console.log("PASS: openReadStream returns file contents.");
+    console.log("PASS: restore returns the file to its provisional path.");
+    console.log("PASS: missing source and occupied destination fail safely.");
+    console.log("PASS: failed restore preserves both the destination and stored source.");
+    console.log("PASS: test does not invoke physical-file deletion.");
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
