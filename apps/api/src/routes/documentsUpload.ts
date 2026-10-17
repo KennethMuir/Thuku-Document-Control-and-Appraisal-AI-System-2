@@ -1485,8 +1485,7 @@ export function createDocumentsUploadRouter(
             storedFilename
           );
 
-        targetPath =
-          storedDocument.localPath;
+        targetPath = localFileStorage.resolve(storedDocument.reference);
 
         const documentResult =
           await client.query(

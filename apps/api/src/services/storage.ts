@@ -9,7 +9,6 @@ export type StorageProvider =
 export type StoredDocument = {
   provider: StorageProvider;
   reference: string;
-  localPath: string;
 };
 
 export interface FileStorageService {
@@ -57,7 +56,6 @@ export class LocalFileStorage
     return {
       provider: "LOCAL",
       reference: targetPath,
-      localPath: targetPath,
     };
   }
 
