@@ -84,10 +84,7 @@ export function registerRoutes(
   );
   app.use(
     "/api/document-deletion",
-    createDocumentDeletionRouter(
-      pool,
-      localFileStorage
-    )
+    createDocumentDeletionRouter(pool)
   );
 
   app.use(

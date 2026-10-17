@@ -1,13 +1,10 @@
 import type { Pool } from "pg";
 
 import { createAuditLog } from "./audit.js";
-import { LocalFileStorage } from "./storage.js";
 
 export type DocumentDeletionResult = {
   documentId: number;
   metadataRecordId: number | null;
-  deletedFilePaths: string[];
-  fileCleanupWarnings: string[];
 };
 
 type DocumentDeletionRow = {
@@ -15,20 +12,14 @@ type DocumentDeletionRow = {
   metadata_record_id: number | null;
 };
 
-type DocumentFileRow = {
-  storage_path: string;
-};
-
 export async function deleteDocument(
   pool: Pool,
-  localFileStorage: LocalFileStorage,
   organizationId: number,
   actorUserId: number | null,
   documentId: number
 ): Promise<DocumentDeletionResult | null> {
   const client = await pool.connect();
 
-  let deletedFilePaths: string[] = [];
   let metadataRecordId: number | null = null;
 
   try {
@@ -68,30 +59,6 @@ export async function deleteDocument(
 
     metadataRecordId =
       documentRow.metadata_record_id;
-
-    const filesResult =
-      await client.query<DocumentFileRow>(
-        `
-          SELECT storage_path
-          FROM document_files
-          WHERE document_id = $1
-          ORDER BY id
-        `,
-        [documentId]
-      );
-
-    deletedFilePaths =
-      filesResult.rows
-        .map(
-          (row) =>
-            String(
-              row.storage_path ?? ""
-            ).trim()
-        )
-        .filter(
-          (storagePath) =>
-            storagePath.length > 0
-        );
 
     await createAuditLog(
       client,
@@ -137,29 +104,8 @@ export async function deleteDocument(
     client.release();
   }
 
-  const fileCleanupWarnings: string[] = [];
-
-  for (const storagePath of deletedFilePaths) {
-    try {
-      await localFileStorage.delete(
-        storagePath
-      );
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : String(error);
-
-      fileCleanupWarnings.push(
-        `Unable to remove stored file "${storagePath}": ${message}`
-      );
-    }
-  }
-
   return {
     documentId,
     metadataRecordId,
-    deletedFilePaths,
-    fileCleanupWarnings,
   };
 }

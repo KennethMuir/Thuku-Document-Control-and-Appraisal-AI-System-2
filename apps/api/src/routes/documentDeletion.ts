@@ -20,10 +20,6 @@ import {
   deleteDocument,
 } from "../services/documentDeletion.js";
 
-import {
-  LocalFileStorage,
-} from "../services/storage.js";
-
 const getOrganizationId = (
   req: Request,
   res: Response
@@ -58,10 +54,7 @@ const getActorUserId = (
   return authUser?.id ?? null;
 };
 
-export function createDocumentDeletionRouter(
-  pool: Pool,
-  localFileStorage: LocalFileStorage
-): Router {
+export function createDocumentDeletionRouter(pool: Pool): Router {
   const router = Router();
 
   router.delete(
@@ -102,7 +95,6 @@ export function createDocumentDeletionRouter(
         const result =
           await deleteDocument(
             pool,
-            localFileStorage,
             organizationId,
             getActorUserId(req),
             documentId
@@ -119,11 +111,6 @@ export function createDocumentDeletionRouter(
         return res.status(200).json({
           success: true,
           data: result,
-          warnings:
-            result.fileCleanupWarnings
-              .length > 0
-              ? result.fileCleanupWarnings
-              : undefined,
         });
       } catch (error) {
         console.error(
