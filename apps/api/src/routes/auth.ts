@@ -533,8 +533,8 @@ router.get(
           ? {
               id:
                 organization.organizationId,
-              name:
-                organization.organizationName,
+              name: organization.organizationName,
+              role: organization.role,
             }
           : null,
       });

@@ -75,7 +75,10 @@ export function useAuthSession() {
             return;
           }
 
-          setAuthUser(data.user);
+          setAuthUser({
+            ...data.user,
+            organizationRole: data.organization?.role,
+          });
 
           setOrganizationName(
             typeof data.organization?.name ===

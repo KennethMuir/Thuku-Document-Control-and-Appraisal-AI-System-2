@@ -135,7 +135,7 @@ export function Settings({
           />
         </SettingsCard>
 
-        {authUser?.role === "ADMIN" && (
+        {(authUser?.organizationRole === "OWNER" || authUser?.organizationRole === "ADMIN" || (!authUser?.organizationRole && authUser?.role === "ADMIN")) && (
           <SettingsCard
             title="User Management"
             description="Manage application access, roles, and account status."
@@ -182,6 +182,11 @@ export function Settings({
                             user.id ===
                             authUser.id;
 
+                          const actorRole = authUser.organizationRole ?? authUser.role;
+                          const membershipRole = user.membershipRole ?? user.role;
+                          const roleRank = { OWNER: 0, ADMIN: 1, APPRAISER: 2, VIEWER: 3 } as const;
+                          const cannotManageTarget = membershipRole === "OWNER" || roleRank[membershipRole] <= roleRank[actorRole];
+
                           const isUpdating =
                             updatingUserId ===
                             user.id;
@@ -206,11 +211,8 @@ export function Settings({
 
                               <td className="px-3 py-4">
                                 <select
-                                  value={user.role}
-                                  disabled={
-                                    isUpdating ||
-                                    isCurrentUser
-                                  }
+                                  value={membershipRole === "OWNER" ? "ADMIN" : user.role}
+                                  disabled={isUpdating || isCurrentUser || cannotManageTarget}
                                   onChange={(
                                     event
                                   ) => {
@@ -236,7 +238,7 @@ export function Settings({
                                     APPRAISER
                                   </option>
                                   <option value="ADMIN">
-                                    ADMIN
+                                    {membershipRole === "OWNER" ? "OWNER" : "ADMIN"}
                                   </option>
                                 </select>
                               </td>
@@ -258,10 +260,7 @@ export function Settings({
                               <td className="px-3 py-4 text-right">
                                 <button
                                   type="button"
-                                  disabled={
-                                    isUpdating ||
-                                    isCurrentUser
-                                  }
+                                  disabled={isUpdating || isCurrentUser || cannotManageTarget}
                                   onClick={() => {
                                     void updateManagedUser(
                                       user.id,
@@ -294,7 +293,7 @@ export function Settings({
               )}
 
               <p className="mt-4 text-xs leading-5 text-slate-400">
-                Your own ADMIN role and account cannot be removed from this screen. The system also requires at least one active ADMIN.
+                You cannot change your own account or manage users with an equal or higher organization role. The organization must retain an active administrator.
               </p>
             </div>
           </SettingsCard>

@@ -54,12 +54,14 @@ export function useUserManagement({
     null
   );
 
+  const canManageUsers =
+    authUser?.organizationRole === "OWNER" ||
+    authUser?.organizationRole === "ADMIN" ||
+    (!authUser?.organizationRole && authUser?.role === "ADMIN");
+
   const loadUserManagementUsers =
     async () => {
-      if (
-        authUser?.role !==
-        "ADMIN"
-      ) {
+      if (!canManageUsers) {
         return;
       }
 
@@ -120,10 +122,7 @@ export function useUserManagement({
       userId: number,
       changes: ManagedUserChanges
     ) => {
-      if (
-        authUser?.role !==
-        "ADMIN"
-      ) {
+      if (!canManageUsers) {
         return;
       }
 
@@ -187,16 +186,13 @@ export function useUserManagement({
 
   useEffect(() => {
     if (
-      activePage ===
-        "Settings" &&
-      authUser?.role ===
-        "ADMIN"
+      activePage === "Settings" && canManageUsers
     ) {
       void loadUserManagementUsers();
     }
   }, [
     activePage,
-    authUser?.role,
+    canManageUsers,
   ]);
 
   return {

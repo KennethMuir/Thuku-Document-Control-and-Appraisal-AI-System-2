@@ -27,6 +27,7 @@ export function createUsersRouter(pool: Pool) {
       const result = await pool.query(`
         SELECT u.id, u.email, u.full_name AS "fullName",
           CASE WHEN om.role = 'OWNER' THEN 'ADMIN' ELSE om.role END AS role,
+          om.role AS "membershipRole",
           om.is_active AS "isActive", u.created_at AS "createdAt"
         FROM users u
         INNER JOIN organization_memberships om ON om.user_id = u.id
@@ -52,10 +53,13 @@ export function createUsersRouter(pool: Pool) {
     if (requestedRole !== undefined && !validRoles.includes(requestedRole as typeof validRoles[number])) return res.status(400).json({ success: false, error: "Invalid user role." });
     if (requestedRole === undefined && requestedIsActive === undefined) return res.status(400).json({ success: false, error: "No user changes were provided." });
 
-    const authUser = (req as AuthenticatedRequest).authUser;
-    if (!authUser) return res.status(401).json({ success: false, error: "Authentication required" });
-    if (authUser.id === userId && (requestedIsActive === false || (requestedRole !== undefined && requestedRole !== "ADMIN"))) {
-      return res.status(400).json({ success: false, error: requestedIsActive === false ? "You cannot deactivate your own account." : "You cannot remove your own ADMIN role." });
+    const authenticatedRequest = req as AuthenticatedRequest;
+    const authUser = authenticatedRequest.authUser;
+    const actorRole = authenticatedRequest.authOrganization?.role;
+
+    if (!authUser) return res.status(401).json({ success: false, error: "Authentication required." });
+    if (actorRole !== "OWNER" && actorRole !== "ADMIN") {
+      return res.status(403).json({ success: false, error: "Only organization owners and administrators can manage users." });
     }
 
     try {
@@ -69,9 +73,34 @@ export function createUsersRouter(pool: Pool) {
       if (existingResult.rowCount === 0) return res.status(404).json({ success: false, error: "User not found." });
 
       const existing = existingResult.rows[0];
-      const finalRole = requestedRole ?? existing.role;
+      const targetRole = existing.membership_role as "OWNER" | "ADMIN" | "APPRAISER" | "VIEWER";
+      const roleRank = { OWNER: 0, ADMIN: 1, APPRAISER: 2, VIEWER: 3 } as const;
+
+      if (targetRole === "OWNER") {
+        return res.status(403).json({ success: false, error: "Owner accounts cannot be managed through user management." });
+      }
+
+      if (authUser.id === userId && (requestedIsActive === false || requestedRole !== undefined)) {
+        return res.status(400).json({
+          success: false,
+          error: requestedIsActive === false
+            ? "You cannot deactivate your own account."
+            : "You cannot change your own role."
+        });
+      }
+
+      if (roleRank[targetRole] <= roleRank[actorRole]) {
+        return res.status(403).json({ success: false, error: "You can only manage users with a lower organization role than your own." });
+      }
+
+      const finalRole = requestedRole ?? targetRole;
       const finalIsActive = requestedIsActive ?? existing.isActive;
-      const removesActiveAdmin = (existing.membership_role === "OWNER" || existing.membership_role === "ADMIN") && Boolean(existing.isActive) && (finalRole !== "ADMIN" || finalIsActive !== true);
+
+      if (roleRank[finalRole as keyof typeof roleRank] <= roleRank[actorRole]) {
+        return res.status(403).json({ success: false, error: "You cannot assign a role equal to or higher than your own." });
+      }
+
+      const removesActiveAdmin = (targetRole === "ADMIN") && Boolean(existing.isActive) && (finalRole !== "ADMIN" || finalIsActive !== true);
       if (removesActiveAdmin) {
         const count = await pool.query(`SELECT COUNT(*)::int AS count FROM organization_memberships WHERE organization_id = $1 AND role IN ('OWNER', 'ADMIN') AND is_active = TRUE`, [organizationId]);
         if (Number(count.rows[0]?.count || 0) <= 1) return res.status(400).json({ success: false, error: "The organization must always have at least one active ADMIN." });
@@ -81,6 +110,7 @@ export function createUsersRouter(pool: Pool) {
       const updated = await pool.query(`
         SELECT u.id, u.email, u.full_name AS "fullName",
           CASE WHEN om.role = 'OWNER' THEN 'ADMIN' ELSE om.role END AS role,
+          om.role AS "membershipRole",
           om.is_active AS "isActive", u.created_at AS "createdAt"
         FROM users u INNER JOIN organization_memberships om ON om.user_id = u.id
         WHERE u.id = $1 AND om.organization_id = $2 LIMIT 1
