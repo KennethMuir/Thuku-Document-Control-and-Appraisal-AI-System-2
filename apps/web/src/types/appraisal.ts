@@ -9,6 +9,14 @@ export type UploadedAppraisal = {
   conflictingFields: string[];
   extractedDateText?: string | null;
   decision: string;
+
+  duplicate?: {
+    isDuplicate: boolean;
+    existingDocumentId?: string | number | null;
+    existingDocumentCode?: string | null;
+    existingFilename?: string | null;
+  } | null;
+
   metadata?: {
     id?: string | number;
     reference_code?: string | null;
@@ -42,4 +50,3 @@ export type UploadedAppraisal = {
     created_at?: string;
   };
 };
-

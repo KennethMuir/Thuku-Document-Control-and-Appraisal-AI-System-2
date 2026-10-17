@@ -44,6 +44,7 @@ export const confirmDocumentUpload = async (
   payload: {
     metadataRecordId?: number | null;
     metadata: unknown;
+    duplicateDecision?: "SAVE_AS_NEW";
   }
 ): Promise<Response> => {
   return apiFetch(
@@ -56,6 +57,8 @@ export const confirmDocumentUpload = async (
           payload.metadataRecordId ?? null,
         metadata:
           payload.metadata,
+        duplicateDecision:
+          payload.duplicateDecision ?? undefined,
       },
     }
   );

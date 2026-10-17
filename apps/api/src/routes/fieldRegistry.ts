@@ -592,7 +592,7 @@ export function createFieldRegistryRouter(pool: Pool) {
           return;
         }
 
-        if (dbField.organization_id !== organizationId) {
+        if (Number(dbField.organization_id) !== organizationId) {
           res.status(403).json({
             success: false,
             error:
@@ -747,10 +747,14 @@ export function createFieldRegistryRouter(pool: Pool) {
               organization_id,
               is_active
             FROM field_registry
-            WHERE field_key = $1
+            WHERE
+              field_key = $1
+              AND (organization_id = $2 OR organization_id IS NULL)
+            ORDER BY
+              CASE WHEN organization_id = $2 THEN 0 ELSE 1 END
             LIMIT 1
           `,
-          [fieldKey]
+          [fieldKey, organizationId]
         );
 
         if (fieldCheck.rows.length === 0) {
@@ -763,14 +767,17 @@ export function createFieldRegistryRouter(pool: Pool) {
 
         const dbField = fieldCheck.rows[0];
 
-        if (
-          dbField.organization_id !== null &&
-          dbField.organization_id !== organizationId
-        ) {
+        if (dbField.organization_id === null) {
           res.status(403).json({
             success: false,
-            error:
-              "Field definition does not belong to your organization.",
+            error: "System fields cannot be enabled.",
+          });
+          return;
+        }
+        if (Number(dbField.organization_id) !== organizationId) {
+          res.status(403).json({
+            success: false,
+            error: "Field definition does not belong to your organization.",
           });
           return;
         }
@@ -783,10 +790,7 @@ export function createFieldRegistryRouter(pool: Pool) {
               updated_at = NOW()
             WHERE
               field_key = $1
-              AND (
-                organization_id = $2
-                OR organization_id IS NULL
-              )
+              AND organization_id = $2
               AND is_active = FALSE
             RETURNING
               id,
@@ -853,10 +857,14 @@ export function createFieldRegistryRouter(pool: Pool) {
               organization_id,
               is_active
             FROM field_registry
-            WHERE field_key = $1
+            WHERE
+              field_key = $1
+              AND (organization_id = $2 OR organization_id IS NULL)
+            ORDER BY
+              CASE WHEN organization_id = $2 THEN 0 ELSE 1 END
             LIMIT 1
           `,
-          [fieldKey]
+          [fieldKey, organizationId]
         );
 
         if (fieldCheck.rows.length === 0) {
@@ -877,7 +885,7 @@ export function createFieldRegistryRouter(pool: Pool) {
           return;
         }
 
-        if (dbField.organization_id !== organizationId) {
+        if (Number(dbField.organization_id) !== organizationId) {
           res.status(403).json({
             success: false,
             error:

@@ -1,10 +1,6 @@
-import {
-  Router,
-  type Request,
-  type Response,
-} from "express";
-
-import type { Pool } from "pg";
+import { Router } from "express";
+import type { Request, Response } from "express";
+import { Pool } from "pg";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
@@ -14,24 +10,21 @@ import {
   requireAuthentication,
   requireOrganizationContext,
   requireRole,
-  type AuthenticatedRequest,
 } from "../middleware/auth.js";
-
+import type { AuthenticatedRequest } from "../middleware/auth.js";
 import {
   extractDocumentContent,
 } from "../services/documentExtraction.js";
-
 import {
   createAuditLog,
 } from "../services/audit.js";
-
 import {
   generateMetadataReferenceCode,
 } from "../services/metadataReferenceCode.js";
-
 import {
   LocalFileStorage,
 } from "../services/storage.js";
+import { calculateSha256 } from "../services/fileIntegrity.js";
 
 type ProvisionalUpload = {
   token: string;
@@ -42,6 +35,12 @@ type ProvisionalUpload = {
   extension: string;
   mimeType: string | null;
   fileSize: number;
+  sha256Hash: string;
+  duplicate?: {
+    existingDocumentId: number;
+    existingDocumentCode: string;
+    existingFilename: string;
+  } | null;
   extracted: {
     text: string;
     title: string | null;
@@ -252,6 +251,8 @@ export function createDocumentsUploadRouter(
       const temporaryPath =
         req.file.path;
 
+      const sha256Hash =
+        await calculateSha256(temporaryPath);
       const authenticatedRequest =
         req as AuthenticatedRequest;
 
@@ -322,6 +323,44 @@ export function createDocumentsUploadRouter(
         const client =
           await pool.connect();
 
+        let duplicate: ProvisionalUpload["duplicate"] = null;
+
+        const duplicateResult =
+          await client.query<{
+            document_id: number;
+            document_code: string;
+            filename: string;
+          }>(
+            `
+              SELECT
+                d.id AS document_id,
+                d.document_code,
+                d.filename
+              FROM document_files df
+              INNER JOIN documents d
+                ON d.id = df.document_id
+              WHERE df.sha256_hash = $1
+                AND d.organization_id = $2
+              ORDER BY d.id ASC
+              LIMIT 1
+            `,
+            [
+              sha256Hash,
+              organizationId,
+            ]
+          );
+
+        if (duplicateResult.rows[0]) {
+          duplicate = {
+            existingDocumentId:
+              duplicateResult.rows[0].document_id,
+            existingDocumentCode:
+              duplicateResult.rows[0].document_code,
+            existingFilename:
+              duplicateResult.rows[0].filename,
+          };
+        }
+
         let bestMatch;
 
         try {
@@ -349,6 +388,8 @@ export function createDocumentsUploadRouter(
             req.file.mimetype || null,
           fileSize:
             req.file.size,
+          sha256Hash,
+          duplicate,
           extracted: {
             text:
               extracted.text ?? "",
@@ -787,6 +828,22 @@ export function createDocumentsUploadRouter(
               "COMPLETED",
           },
           appraisal: {
+            duplicate: duplicate
+              ? {
+                  isDuplicate: true,
+                  existingDocumentId:
+                    duplicate.existingDocumentId,
+                  existingDocumentCode:
+                    duplicate.existingDocumentCode,
+                  existingFilename:
+                    duplicate.existingFilename,
+                }
+              : {
+                  isDuplicate: false,
+                  existingDocumentId: null,
+                  existingDocumentCode: null,
+                  existingFilename: null,
+                },
             matchType:
               bestMatch.matchType,
             confidence:
@@ -886,7 +943,12 @@ export function createDocumentsUploadRouter(
           req.body?.metadata
         );
 
-      const requestedMetadataRecordId =
+      const duplicateDecision =
+        req.body?.duplicateDecision === "SAVE_AS_NEW"
+          ? "SAVE_AS_NEW"
+          : null;
+
+    const requestedMetadataRecordId =
         req.body?.metadataRecordId
           ? Number(
               req.body.metadataRecordId
@@ -1002,6 +1064,88 @@ export function createDocumentsUploadRouter(
 
       try {
         await client.query("BEGIN");
+
+        let duplicateDocumentCode: string | null = null;
+        let duplicateBaseCode: string | null = null;
+
+        const duplicateLockResult =
+          await client.query<{
+            document_id: number;
+            document_code: string;
+            filename: string;
+          }>(
+            `
+              SELECT
+                d.id AS document_id,
+                d.document_code,
+                d.filename
+              FROM document_files df
+              INNER JOIN documents d
+                ON d.id = df.document_id
+              WHERE df.sha256_hash = $1
+                AND d.organization_id = $2
+              ORDER BY d.id ASC
+              LIMIT 1
+              FOR UPDATE OF d
+            `,
+            [
+              provisional.sha256Hash,
+              organizationId,
+            ]
+          );
+
+        const existingDuplicate =
+          duplicateLockResult.rows[0] ?? null;
+
+        if (existingDuplicate) {
+          if (duplicateDecision !== "SAVE_AS_NEW") {
+            const duplicateError = new Error(
+              "This file is already registered and requires explicit duplicate approval."
+            );
+
+            (
+              duplicateError as Error & {
+                code?: string;
+                duplicate?: {
+                  existingDocumentId: number;
+                  existingDocumentCode: string;
+                  existingFilename: string;
+                };
+              }
+            ).code = "DUPLICATE_REQUIRES_APPROVAL";
+
+            (
+              duplicateError as Error & {
+                duplicate?: {
+                  existingDocumentId: number;
+                  existingDocumentCode: string;
+                  existingFilename: string;
+                };
+              }
+            ).duplicate = {
+              existingDocumentId:
+                Number(existingDuplicate.document_id),
+              existingDocumentCode:
+                existingDuplicate.document_code,
+              existingFilename:
+                existingDuplicate.filename,
+            };
+
+            throw duplicateError;
+          }
+
+          duplicateDocumentCode =
+            existingDuplicate.document_code;
+
+          const suffixMatch =
+            existingDuplicate.document_code.match(
+              /^(.*) \((\d+)\)$/
+            );
+
+          duplicateBaseCode =
+            suffixMatch?.[1] ??
+            existingDuplicate.document_code;
+        }
 
         let metadataRecordId =
           requestedMetadataRecordId;
@@ -1221,11 +1365,15 @@ export function createDocumentsUploadRouter(
         /*
          * DOCUMENT NUMBER
          *
-         * Document codes remain globally numbered:
-         * DOC-1, DOC-2, DOC-3...
+         * Normal uploads receive the next global DOC-N code.
          *
-         * This is completely independent from
-         * department-based metadata references.
+         * Approved duplicates retain the original document
+         * code family and receive a numeric suffix:
+         *
+         * DOC-256
+         * DOC-256 (1)
+         * DOC-256 (2)
+         * DOC-256 (3)
          */
         const codeResult =
           await client.query(`
@@ -1251,8 +1399,82 @@ export function createDocumentsUploadRouter(
           );
         }
 
-        const documentCode =
+        let documentCode =
           `DOC-${uploadNumber}`;
+
+        if (duplicateBaseCode) {
+          const codeFamilyResult =
+            await client.query<{
+              document_code: string;
+            }>(
+              `
+                SELECT document_code
+                FROM documents
+                WHERE document_code = $1
+                   OR document_code LIKE $2
+                ORDER BY id ASC
+                FOR UPDATE
+              `,
+              [
+                duplicateBaseCode,
+                `${duplicateBaseCode} (%)`,
+              ]
+            );
+
+          let highestSuffix = 0;
+
+          for (
+            const row of codeFamilyResult.rows
+          ) {
+            const familyMatch =
+              row.document_code.match(
+                /^(.*) \((\d+)\)$/
+              );
+
+            if (!familyMatch) {
+              continue;
+            }
+
+            if (
+              familyMatch[1] !==
+                duplicateBaseCode
+            ) {
+              continue;
+            }
+
+            const suffix =
+              Number(
+                familyMatch[2]
+              );
+
+            if (
+              Number.isInteger(suffix) &&
+              suffix > highestSuffix
+            ) {
+              highestSuffix = suffix;
+            }
+          }
+
+          documentCode =
+            `${duplicateBaseCode} (${highestSuffix + 1})`;
+
+          const conflictingCode =
+            await client.query(
+              `
+                SELECT id
+                FROM documents
+                WHERE document_code = $1
+                LIMIT 1
+              `,
+              [documentCode]
+            );
+
+          if (conflictingCode.rows[0]) {
+            throw new Error(
+              "Unable to allocate a unique duplicate document code. Please retry the upload."
+            );
+          }
+        }
 
         const storedFilename =
           `${documentCode}${provisional.extension}`;
@@ -1358,7 +1580,8 @@ export function createDocumentsUploadRouter(
               storage_provider,
               storage_reference,
               mime_type,
-              file_size
+              file_size,
+              sha256_hash
             )
             VALUES (
               $1,
@@ -1368,7 +1591,8 @@ export function createDocumentsUploadRouter(
               $5,
               $6,
               $7,
-              $8
+              $8,
+              $9
             )
           `,
           [
@@ -1380,6 +1604,7 @@ export function createDocumentsUploadRouter(
             storedDocument.reference,
             provisional.mimeType,
             provisional.fileSize,
+            provisional.sha256Hash
           ]
         );
 
@@ -1537,6 +1762,47 @@ export function createDocumentsUploadRouter(
             });
 
           targetPath = null;
+        }
+
+        if (
+          error instanceof Error &&
+          (error as Error & {
+            code?: string;
+            duplicate?: {
+              existingDocumentId: number;
+              existingDocumentCode: string;
+              existingFilename: string;
+            };
+          }).code ===
+            "DUPLICATE_REQUIRES_APPROVAL"
+        ) {
+          const duplicate =
+            (
+              error as Error & {
+                duplicate?: {
+                  existingDocumentId: number;
+                  existingDocumentCode: string;
+                  existingFilename: string;
+                };
+              }
+            ).duplicate;
+
+          return res.status(409).json({
+            success: false,
+            error:
+              "DUPLICATE_REQUIRES_APPROVAL",
+            message:
+              "This file is already registered. Explicit approval is required to save it as a new document.",
+            duplicate: {
+              isDuplicate: true,
+              existingDocumentId:
+                duplicate?.existingDocumentId ?? null,
+              existingDocumentCode:
+                duplicate?.existingDocumentCode ?? null,
+              existingFilename:
+                duplicate?.existingFilename ?? null,
+            },
+          });
         }
 
         console.error(
