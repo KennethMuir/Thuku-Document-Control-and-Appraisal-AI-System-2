@@ -147,7 +147,8 @@ function createPdf(textLines: string[]): Buffer {
 }
 
 async function createSession(
-  userId: number
+  userId: number,
+  trackedSessionIds: number[]
 ): Promise<string> {
   const rawToken =
     randomBytes(32).toString("hex");
@@ -157,7 +158,7 @@ async function createSession(
       .update(rawToken)
       .digest("hex");
 
-  await pool.query(
+  const sessionResult = await pool.query<{ id: string | number }>(
     `
       INSERT INTO sessions (
         user_id,
@@ -169,24 +170,43 @@ async function createSession(
         $2,
         NOW() + INTERVAL '1 hour'
       )
+      RETURNING id
     `,
     [userId, tokenHash]
   );
 
+  const sessionId = Number(sessionResult.rows[0]?.id);
+  if (!Number.isInteger(sessionId) || sessionId <= 0) {
+    throw new Error(
+      "Created test session did not return a valid session ID; session cleanup cannot safely track it."
+    );
+  }
+
+  trackedSessionIds.push(sessionId);
+
   return rawToken;
 }
-
 async function main() {
   const testSuffix = Date.now().toString();
   const signupEmail = `m20-signup-${testSuffix}@test.local`;
+  const signupFullName = `M20 Signup User ${testSuffix}`;
 
   const createdUserIds: number[] = [];
   const createdOrganizationIds: number[] = [];
   const createdSessionIds: number[] = [];
+  let signupSessionTokenHashForCleanup: string | null = null;
+
   const createdDocumentIds: number[] = [];
   const createdMetadataIds: number[] = [];
   const createdDepartmentIds: number[] = [];
   const createdWorkspaceIds: number[] = [];
+
+  let orgAUserIdForCleanup: number | null = null;
+  let orgAIdForCleanup: number | null = null;
+  let orgBUserIdForCleanup: number | null = null;
+  let orgBIdForCleanup: number | null = null;
+
+  let mainTestFailed = false;
 
   try {
     console.log(
@@ -229,8 +249,11 @@ async function main() {
     const orgAId =
       adminResult.rows[0]!.organization_id;
 
+    orgAUserIdForCleanup = orgAUserId;
+    orgAIdForCleanup = orgAId;
+
     const sessionA =
-      await createSession(orgAUserId);
+      await createSession(orgAUserId, createdSessionIds);
 
     console.log(
       `Organization A: user=${orgAUserId}, organization=${orgAId}`
@@ -367,7 +390,13 @@ async function main() {
     const orgBId =
       Number(orgBCreation.rows[0]!.id);
 
+    assertCondition(
+      Number.isInteger(orgBId) && orgBId > 0,
+      "Organization creation returned an invalid organization ID."
+    );
+
     createdOrganizationIds.push(orgBId);
+    orgBIdForCleanup = orgBId;
 
     const orgBUser = await pool.query<{
       id: number;
@@ -399,7 +428,13 @@ async function main() {
     const orgBUserId =
       Number(orgBUser.rows[0]!.id);
 
+    assertCondition(
+      Number.isInteger(orgBUserId) && orgBUserId > 0,
+      "Org B user creation returned an invalid user ID."
+    );
+
     createdUserIds.push(orgBUserId);
+    orgBUserIdForCleanup = orgBUserId;
 
     await pool.query(
       `
@@ -420,7 +455,7 @@ async function main() {
     );
 
     const sessionB =
-      await createSession(orgBUserId);
+      await createSession(orgBUserId, createdSessionIds);
 
     console.log(
       `Organization B: user=${orgBUserId}, organization=${orgBId}`
@@ -482,6 +517,12 @@ async function main() {
         controlBody?.document?.id
       );
 
+    assertCondition(
+      Number.isInteger(controlDocumentId) &&
+        controlDocumentId > 0,
+      `Control upload returned an invalid document ID: ${json(controlBody)}`
+    );
+
     createdDocumentIds.push(
       controlDocumentId
     );
@@ -542,6 +583,12 @@ async function main() {
       Number(
         crossOrgBody?.document?.id
       );
+
+    assertCondition(
+      Number.isInteger(crossOrgDocumentId) &&
+        crossOrgDocumentId > 0,
+      `Org B upload returned an invalid document ID: ${json(crossOrgBody)}`
+    );
 
     createdDocumentIds.push(
       crossOrgDocumentId
@@ -804,7 +851,7 @@ async function main() {
     createdUserIds.push(legacyUserId);
 
     const legacyToken =
-      await createSession(legacyUserId);
+      await createSession(legacyUserId, createdSessionIds);
 
     const legacyCreate =
       await apiJson(
@@ -839,7 +886,7 @@ async function main() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          fullName: "M20 Signup User",
+          fullName: signupFullName,
           email: signupEmail,
           password: "password123",
           confirmPassword:
@@ -873,6 +920,33 @@ async function main() {
         .replace("session=", "")
         .trim();
 
+    const signupTokenHash = createHash("sha256")
+      .update(signupToken)
+      .digest("hex");
+    signupSessionTokenHashForCleanup = signupTokenHash;
+    const signupSessionResult = await pool.query<{ id: string | number }>(
+      `
+        SELECT id
+        FROM sessions
+        WHERE token_hash = $1
+      `,
+      [signupTokenHash]
+    );
+
+    assertCondition(
+      signupSessionResult.rows.length === 1,
+      "Signup session could not be uniquely tracked."
+    );
+
+    const signupSessionId = Number(signupSessionResult.rows[0]?.id);
+    assertCondition(
+      Number.isInteger(signupSessionId) && signupSessionId > 0,
+      "Signup session returned an invalid ID."
+    );
+
+    if (!createdSessionIds.includes(signupSessionId)) {
+      createdSessionIds.push(signupSessionId);
+    }
     const signupUserId = Number(
       (signupBody as any)?.user?.id
     );
@@ -884,6 +958,25 @@ async function main() {
     );
 
     createdUserIds.push(signupUserId);
+
+    // Recover the signup-created organization before later assertions can fail.
+    const signupOrganizationBySlug = await pool.query<{ id: number }>(
+      `
+        SELECT id
+        FROM organizations
+        WHERE slug = $1
+        LIMIT 1
+      `,
+      [`personal-${signupUserId}`]
+    );
+
+    for (const row of signupOrganizationBySlug.rows) {
+      const organizationId = Number(row.id);
+      if (Number.isInteger(organizationId) && organizationId > 0 &&
+          !createdOrganizationIds.includes(organizationId)) {
+        createdOrganizationIds.push(organizationId);
+      }
+    }
 
     const provisioned =
       await pool.query<{
@@ -923,6 +1016,10 @@ async function main() {
         signupOrgId > 0,
       "Signup returned an invalid organization id."
     );
+    if (!createdOrganizationIds.includes(signupOrgId)) {
+      createdOrganizationIds.push(signupOrgId);
+    }
+
 
     assertCondition(
       provisioned.rows[0]!.role === "OWNER",
@@ -946,7 +1043,6 @@ async function main() {
       "Signup organization was not provisioned as a private personal organization."
     );
 
-    createdOrganizationIds.push(signupOrgId);
 
     const signupDashboard =
       await apiJson(
@@ -1005,13 +1101,15 @@ async function main() {
       (orgBReuse.body as any)?.department?.id
     );
 
-    if (
-      Number.isInteger(orgBDepartmentId)
-    ) {
-      createdDepartmentIds.push(
-        orgBDepartmentId
-      );
-    }
+    assertCondition(
+      Number.isInteger(orgBDepartmentId) &&
+        orgBDepartmentId > 0,
+      `Department creation returned an invalid department ID: ${json(orgBReuse.body)}`
+    );
+
+    createdDepartmentIds.push(
+      orgBDepartmentId
+    );
 
     const orgBSameCode = await apiJson(
       "POST",
@@ -1067,6 +1165,7 @@ async function main() {
       "=============================================="
     );
   } catch (error) {
+    mainTestFailed = true;
     console.error(
       "\n=============================================="
     );
@@ -1089,16 +1188,92 @@ async function main() {
     // Cleanup.
     // Each operation is isolated so one failure does not skip later attempts.
     const cleanupErrors: string[] = [];
+    let allCleanupOperationsSucceeded = true;
+
+    // Recover only this run's uniquely named signup fixture if response
+    // assertions failed after the signup transaction committed.
+    try {
+      const signupUserRecovery = await pool.query<{ id: string | number }>(
+        `
+          SELECT id
+          FROM users
+          WHERE LOWER(email) = LOWER($1)
+            AND full_name = $2
+          LIMIT 1
+        `,
+        [signupEmail, signupFullName]
+      );
+
+      for (const row of signupUserRecovery.rows) {
+        const userId = Number(row.id);
+
+        if (!Number.isInteger(userId) || userId <= 0) {
+          continue;
+        }
+
+        if (!createdUserIds.includes(userId)) {
+          createdUserIds.push(userId);
+        }
+
+        const organizationRecovery = await pool.query<{
+          id: string | number;
+        }>(
+          `
+            SELECT id
+            FROM organizations
+            WHERE slug = $1
+            LIMIT 1
+          `,
+          [`personal-${userId}`]
+        );
+
+        for (const organizationRow of organizationRecovery.rows) {
+          const organizationId = Number(organizationRow.id);
+
+          if (
+            Number.isInteger(organizationId) &&
+            organizationId > 0 &&
+            !createdOrganizationIds.includes(organizationId)
+          ) {
+            createdOrganizationIds.push(organizationId);
+          }
+        }
+      }
+
+      console.log("Cleanup recovery PASS: signup fixture lookup completed.");
+    } catch (recoveryError) {
+      allCleanupOperationsSucceeded = false;
+
+      const message =
+        recoveryError instanceof Error
+          ? recoveryError.message
+          : String(recoveryError);
+
+      cleanupErrors.push(`signup fixture recovery: ${message}`);
+      console.error(`Cleanup recovery FAIL: signup fixture: ${message}`);
+    }
 
     const runCleanup = async (
       label: string,
-      operation: () => Promise<unknown>
+      operation: () => Promise<{ rowCount: number | null }>,
+      expectedRowCount?: number
     ): Promise<boolean> => {
       try {
-        await operation();
+        const result = await operation();
+
+        if (
+          expectedRowCount !== undefined &&
+          result.rowCount !== expectedRowCount
+        ) {
+          throw new Error(
+            `Expected ${expectedRowCount} affected row(s), got ${result.rowCount ?? "unknown"}.`
+          );
+        }
+
         console.log(`Cleanup PASS: ${label}`);
         return true;
       } catch (cleanupError) {
+        allCleanupOperationsSucceeded = false;
         const message =
           cleanupError instanceof Error
             ? cleanupError.message
@@ -1110,6 +1285,87 @@ async function main() {
       }
     };
 
+    // Recover upload records if a response/assertion failed after COMMIT.
+    // Exact filename + tenant + owner is required; ambiguous matches block
+    // dependent cleanup rather than risking deletion of unrelated records.
+    const recoverUploadDocument = async (
+      label: string,
+      filename: string,
+      organizationId: number,
+      ownerUserId: number
+    ): Promise<void> => {
+      try {
+        const recovery = await pool.query<{
+          id: string | number;
+        }>(
+          `
+            SELECT id
+            FROM documents
+            WHERE filename = $1
+              AND organization_id = $2
+              AND owner_user_id = $3
+          `,
+          [filename, organizationId, ownerUserId]
+        );
+
+        if (recovery.rows.length === 0) {
+          console.log(`Cleanup recovery: no untracked ${label} document found.`);
+          return;
+        }
+
+        if (recovery.rows.length !== 1) {
+          allCleanupOperationsSucceeded = false;
+          const message =
+            `${label}: expected at most one recovery match, found ${recovery.rows.length}; no candidate IDs were tracked.`;
+          cleanupErrors.push(message);
+          console.error(`Cleanup recovery FAIL: ${message}`);
+          return;
+        }
+
+        const documentId = Number(recovery.rows[0]!.id);
+
+        if (!Number.isInteger(documentId) || documentId <= 0) {
+          allCleanupOperationsSucceeded = false;
+          const message = `${label}: recovery returned an invalid document ID.`;
+          cleanupErrors.push(message);
+          console.error(`Cleanup recovery FAIL: ${message}`);
+          return;
+        }
+
+        if (!createdDocumentIds.includes(documentId)) {
+          createdDocumentIds.push(documentId);
+        }
+
+        console.log(`Cleanup recovery PASS: tracked ${label} document ${documentId}.`);
+      } catch (recoveryError) {
+        allCleanupOperationsSucceeded = false;
+        const message =
+          recoveryError instanceof Error
+            ? recoveryError.message
+            : String(recoveryError);
+
+        cleanupErrors.push(`${label} document recovery: ${message}`);
+        console.error(`Cleanup recovery FAIL: ${label}: ${message}`);
+      }
+    };
+
+    if (orgAIdForCleanup !== null && orgAUserIdForCleanup !== null) {
+      await recoverUploadDocument(
+        "Org A control upload",
+        `M20 Control ${testSuffix}.pdf`,
+        orgAIdForCleanup,
+        orgAUserIdForCleanup
+      );
+    }
+
+    if (orgBIdForCleanup !== null && orgBUserIdForCleanup !== null) {
+      await recoverUploadDocument(
+        "Org B cross-organization upload",
+        `M20 Cross Org ${testSuffix}.pdf`,
+        orgBIdForCleanup,
+        orgBUserIdForCleanup
+      );
+    }
     if (createdDocumentIds.length > 0) {
       await runCleanup("test documents", () =>
         pool.query(
@@ -1118,7 +1374,8 @@ async function main() {
             WHERE id = ANY($1::bigint[])
           `,
           [createdDocumentIds]
-        )
+        ),
+        new Set(createdDocumentIds).size
       );
     }
 
@@ -1130,7 +1387,8 @@ async function main() {
             WHERE id = ANY($1::bigint[])
           `,
           [createdDepartmentIds]
-        )
+        ),
+        new Set(createdDepartmentIds).size
       );
     }
 
@@ -1142,36 +1400,105 @@ async function main() {
             WHERE id = ANY($1::bigint[])
           `,
           [createdMetadataIds]
-        )
+        ),
+        new Set(createdMetadataIds).size
+      );
+    }
+
+    if (signupSessionTokenHashForCleanup !== null) {
+      try {
+        const recoveredSignupSessions = await pool.query<{
+          id: string | number;
+        }>(
+          `
+            SELECT id
+            FROM sessions
+            WHERE token_hash = $1
+          `,
+          [signupSessionTokenHashForCleanup]
+        );
+
+        if (recoveredSignupSessions.rows.length !== 1) {
+          throw new Error(
+            `Expected exactly one signup session for this run; found ${recoveredSignupSessions.rows.length}.`
+          );
+        }
+
+        const recoveredSessionId = Number(
+          recoveredSignupSessions.rows[0]?.id
+        );
+
+        if (
+          !Number.isInteger(recoveredSessionId) ||
+          recoveredSessionId <= 0
+        ) {
+          throw new Error(
+            "Signup session recovery returned an invalid session ID."
+          );
+        }
+
+        if (!createdSessionIds.includes(recoveredSessionId)) {
+          createdSessionIds.push(recoveredSessionId);
+        }
+
+        console.log("Cleanup recovery PASS: signup session uniquely tracked.");
+      } catch (recoveryError) {
+        allCleanupOperationsSucceeded = false;
+
+        const message =
+          recoveryError instanceof Error
+            ? recoveryError.message
+            : String(recoveryError);
+
+        cleanupErrors.push(`signup session recovery: ${message}`);
+        console.error(`Cleanup recovery FAIL: signup session: ${message}`);
+      }
+    }
+    if (createdSessionIds.length > 0) {
+      await runCleanup("specifically tracked test sessions", () =>
+        pool.query(
+          `
+            DELETE FROM sessions
+            WHERE id = ANY($1::bigint[])
+          `,
+          [createdSessionIds]
+        ),
+        new Set(createdSessionIds).size
       );
     }
 
     let organizationsCleanupSucceeded = true;
 
     if (createdOrganizationIds.length > 0) {
-      organizationsCleanupSucceeded = await runCleanup("test-created organizations", () =>
-        pool.query(
-          `
-            DELETE FROM organizations
-            WHERE id = ANY($1::bigint[])
-          `,
-          [createdOrganizationIds]
-        )
-      );
+      if (allCleanupOperationsSucceeded && !mainTestFailed) {
+        organizationsCleanupSucceeded = await runCleanup(
+          "test-created organizations",
+          () =>
+            pool.query(
+              `
+                DELETE FROM organizations
+                WHERE id = ANY($1::bigint[])
+              `,
+              [createdOrganizationIds]
+            ),
+          new Set(createdOrganizationIds).size
+        );
+      } else {
+        organizationsCleanupSucceeded = false;
+        cleanupErrors.push(
+          "test-created organizations: deletion skipped because the main test failed or a prerequisite cleanup operation failed"
+        );
+        console.error(
+          "Cleanup SKIPPED: organization deletion because the main test failed or a prerequisite cleanup operation failed."
+        );
+      }
     }
-
     if (createdUserIds.length > 0) {
-      await runCleanup("test-user sessions", () =>
-        pool.query(
-          `
-            DELETE FROM sessions
-            WHERE user_id = ANY($1::bigint[])
-          `,
-          [createdUserIds]
-        )
-      );
-
-      if (organizationsCleanupSucceeded) {
+      if (
+        organizationsCleanupSucceeded &&
+        allCleanupOperationsSucceeded &&
+        !mainTestFailed
+      ) {
         await runCleanup("test users", () =>
           pool.query(
             `
@@ -1179,42 +1506,13 @@ async function main() {
               WHERE id = ANY($1::bigint[])
             `,
             [createdUserIds]
-          )
+          ),
+          new Set(createdUserIds).size
         );
       } else {
-        console.error("Cleanup SKIPPED: test-user deletion because organization cleanup failed.");
-        cleanupErrors.push("test users: skipped because organization cleanup failed");
+        console.error("Cleanup SKIPPED: test-user deletion because the main test failed or a prerequisite cleanup operation failed.");
+        cleanupErrors.push("test users: deletion skipped because the main test failed or a prerequisite cleanup operation failed");
       }
-    }
-
-    if (organizationsCleanupSucceeded) {
-      await runCleanup("signup sessions fallback", () =>
-        pool.query(
-          `
-            DELETE FROM sessions
-            WHERE user_id = (
-              SELECT id
-              FROM users
-              WHERE email = $1
-              LIMIT 1
-            )
-          `,
-          [signupEmail]
-        )
-      );
-
-      await runCleanup("signup user fallback", () =>
-        pool.query(
-          `
-            DELETE FROM users
-            WHERE email = $1
-          `,
-          [signupEmail]
-        )
-      );
-    } else {
-      console.error("Cleanup SKIPPED: signup fallback deletion because organization cleanup failed.");
-      cleanupErrors.push("signup fallback: skipped because organization cleanup failed");
     }
 
     if (cleanupErrors.length > 0) {

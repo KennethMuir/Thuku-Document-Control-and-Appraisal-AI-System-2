@@ -5,6 +5,9 @@ import {
   useState,
 } from "react";
 
+import { useRouter } from "next/navigation";
+import { clearSelectedOrganizationId } from "@/lib/organization/selection";
+
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ??
   "http://localhost:4000";
@@ -22,6 +25,7 @@ type LoginResponse = {
 };
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] =
     useState("");
 
@@ -73,7 +77,8 @@ export default function LoginPage() {
         );
       }
 
-      window.location.href = "/";
+      clearSelectedOrganizationId();
+      router.push("/");
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -176,7 +181,7 @@ export default function LoginPage() {
           </form>
 
           <div className="mt-6 text-center text-sm text-slate-400">
-            Don't have an account?{" "}
+            Don&apos;t have an account?{" "}
             <a
               href="/signup"
               className="font-semibold text-emerald-400 transition hover:text-emerald-300"

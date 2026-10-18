@@ -5,6 +5,9 @@ import {
   useState,
 } from "react";
 
+import { useRouter } from "next/navigation";
+import { clearSelectedOrganizationId } from "@/lib/organization/selection";
+
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ??
   "http://localhost:4000";
@@ -22,6 +25,7 @@ type SignupResponse = {
 };
 
 export default function SignupPage() {
+  const router = useRouter();
   const [fullName, setFullName] =
     useState("");
 
@@ -96,7 +100,8 @@ export default function SignupPage() {
         );
       }
 
-      window.location.href = "/";
+      clearSelectedOrganizationId();
+      router.push("/");
     } catch (requestError) {
       setError(
         requestError instanceof Error
