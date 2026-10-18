@@ -1106,6 +1106,33 @@ export function createDocumentsUploadRouter(
       try {
         await client.query("BEGIN");
 
+        /*
+         * TRIAL ACCESS LOCK
+         *
+         * Serialize confirmations for this trial organization.
+         * The row lock remains held until COMMIT or ROLLBACK.
+         * Organizations without trial rows retain existing behavior.
+         */
+        const trialAccessResult = await client.query<{
+          trial_started: boolean;
+          trial_active: boolean;
+          document_limit: number;
+        }>(
+          `
+            SELECT
+              trial_starts_at <= NOW() AS trial_started,
+              trial_ends_at > NOW() AS trial_active,
+              document_limit
+            FROM organization_trials
+            WHERE organization_id = $1
+            FOR UPDATE
+          `,
+          [organizationId]
+        );
+
+        const trialAccess =
+          trialAccessResult.rows[0] ?? null;
+
         let duplicateDocumentCode: string | null = null;
         let duplicateBaseCode: string | null = null;
 
@@ -1186,6 +1213,66 @@ export function createDocumentsUploadRouter(
           duplicateBaseCode =
             suffixMatch?.[1] ??
             existingDuplicate.document_code;
+        }
+
+        /*
+         * TRIAL EXPIRY AND DOCUMENT QUOTA
+         *
+         * Duplicate approval is resolved above first.
+         * Count permanent document records, not provisional uploads.
+         * SAVE_AS_NEW consumes a slot only if registration commits.
+         */
+        if (trialAccess) {
+          if (
+            !trialAccess.trial_started ||
+            !trialAccess.trial_active
+          ) {
+            const trialError = new Error(
+              "The organization trial has expired or has not started."
+            );
+
+            (
+              trialError as Error & {
+                code?: string;
+              }
+            ).code = "TRIAL_EXPIRED";
+
+            throw trialError;
+          }
+
+          const documentCountResult =
+            await client.query<{
+              document_count: number;
+            }>(
+              `
+                SELECT COUNT(*)::int AS document_count
+                FROM documents
+                WHERE organization_id = $1
+              `,
+              [organizationId]
+            );
+
+          const documentCount =
+            Number(
+              documentCountResult.rows[0]?.document_count ?? 0
+            );
+
+          if (
+            documentCount >=
+            Number(trialAccess.document_limit)
+          ) {
+            const quotaError = new Error(
+              "The organization has reached its 10-document trial limit."
+            );
+
+            (
+              quotaError as Error & {
+                code?: string;
+              }
+            ).code = "TRIAL_DOCUMENT_LIMIT_REACHED";
+
+            throw quotaError;
+          }
         }
 
         let metadataRecordId =
@@ -1883,6 +1970,33 @@ export function createDocumentsUploadRouter(
                 duplicate?.existingFilename ?? null,
             },
           });
+        }
+
+        if (error instanceof Error) {
+          const errorCode =
+            (error as Error & {
+              code?: string;
+            }).code;
+
+          if (errorCode === "TRIAL_EXPIRED") {
+            return res.status(403).json({
+              success: false,
+              error: "TRIAL_EXPIRED",
+              message:
+                "The organization trial has expired or has not started.",
+            });
+          }
+
+          if (
+            errorCode === "TRIAL_DOCUMENT_LIMIT_REACHED"
+          ) {
+            return res.status(409).json({
+              success: false,
+              error: "TRIAL_DOCUMENT_LIMIT_REACHED",
+              message:
+                "The organization has reached its 10-document trial limit.",
+            });
+          }
         }
 
         console.error(

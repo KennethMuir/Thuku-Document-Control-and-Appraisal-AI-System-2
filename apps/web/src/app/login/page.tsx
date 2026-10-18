@@ -1,16 +1,13 @@
 "use client";
 
-import {
-  FormEvent,
-  useState,
-} from "react";
-
+import { useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { AuthLayout } from "@/components/auth/AuthLayout";
 import { clearSelectedOrganizationId } from "@/lib/organization/selection";
 
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ??
-  "http://localhost:4000";
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 type LoginResponse = {
   success?: boolean;
@@ -24,25 +21,23 @@ type LoginResponse = {
   error?: string;
 };
 
+const inputClassName =
+  "w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10";
+
+const labelClassName =
+  "mb-2 block text-sm font-medium text-slate-700";
+
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] =
-    useState("");
-
-  const [password, setPassword] =
-    useState("");
-
-  const [error, setError] =
-    useState("");
-
-  const [loading, setLoading] =
-    useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (
     event: FormEvent<HTMLFormElement>
   ) => {
     event.preventDefault();
-
     setError("");
     setLoading(true);
 
@@ -52,8 +47,7 @@ export default function LoginPage() {
         {
           method: "POST",
           headers: {
-            "Content-Type":
-              "application/json",
+            "Content-Type": "application/json",
           },
           credentials: "include",
           body: JSON.stringify({
@@ -66,15 +60,8 @@ export default function LoginPage() {
       const data =
         (await response.json()) as LoginResponse;
 
-      if (
-        !response.ok ||
-        !data.success ||
-        !data.user
-      ) {
-        throw new Error(
-          data.error ||
-            "Unable to sign in."
-        );
+      if (!response.ok || !data.success || !data.user) {
+        throw new Error(data.error || "Unable to sign in.");
       }
 
       clearSelectedOrganizationId();
@@ -91,111 +78,92 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-950 px-6 py-12 text-white">
-      <div className="mx-auto flex min-h-[calc(100vh-6rem)] max-w-md items-center justify-center">
-        <section className="w-full rounded-3xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
-          <div className="mb-8">
-            <p className="mb-3 text-sm font-medium uppercase tracking-[0.2em] text-emerald-400">
-              Document Appraisal AI
-            </p>
-
-            <h1 className="text-3xl font-semibold tracking-tight">
-              Sign in
-            </h1>
-
-            <p className="mt-3 text-sm leading-6 text-slate-400">
-              Sign in to access the document
-              intelligence and records management
-              system.
-            </p>
-          </div>
-
-          <form
-            onSubmit={handleSubmit}
-            className="space-y-5"
+    <AuthLayout
+      eyebrow="WELCOME BACK"
+      title="Sign in to your workspace"
+      description="Continue managing your records, reviewing documents, and working with your organization."
+      asideTitle="Your records, connected and under control."
+      asideDescription="Return to a structured workspace built to help you manage document information and move reviews forward with confidence."
+      features={[
+        "Return to your organization workspace",
+        "Continue your document review and appraisal workflow",
+        "Access records according to your assigned permissions",
+      ]}
+      footer={
+        <p className="text-center text-sm text-slate-500">
+          New to Document Appraisal AI?{" "}
+          <Link
+            href="/signup"
+            className="font-semibold text-indigo-700 transition hover:text-indigo-900"
           >
-            <div>
-              <label
-                htmlFor="email"
-                className="mb-2 block text-sm font-medium text-slate-200"
-              >
-                Email
-              </label>
+            Create an account
+          </Link>
+        </p>
+      }
+    >
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div>
+          <label htmlFor="email" className={labelClassName}>
+            Email address
+          </label>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            autoComplete="username"
+            autoCapitalize="none"
+            spellCheck={false}
+            required
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            className={inputClassName}
+            placeholder="you@company.com"
+          />
+        </div>
 
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="username"
-                required
-                value={email}
-                onChange={(event) =>
-                  setEmail(event.target.value)
-                }
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-emerald-500"
-                placeholder="you@example.com"
-              />
-            </div>
+        <div>
+          <label htmlFor="password" className={labelClassName}>
+            Password
+          </label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            className={inputClassName}
+            placeholder="Enter your password"
+          />
+        </div>
 
-            <div>
-              <label
-                htmlFor="password"
-                className="mb-2 block text-sm font-medium text-slate-200"
-              >
-                Password
-              </label>
-
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(event) =>
-                  setPassword(event.target.value)
-                }
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-emerald-500"
-                placeholder="Enter your password"
-              />
-            </div>
-
-            {error ? (
-              <div
-                role="alert"
-                className="rounded-xl border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-300"
-              >
-                {error}
-              </div>
-            ) : null}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-xl bg-emerald-500 px-4 py-3 font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loading
-                ? "Signing in..."
-                : "Sign in"}
-            </button>
-          </form>
-
-          <div className="mt-6 text-center text-sm text-slate-400">
-            Don&apos;t have an account?{" "}
-            <a
-              href="/signup"
-              className="font-semibold text-emerald-400 transition hover:text-emerald-300"
-            >
-              Sign up
-            </a>
+        {error ? (
+          <div
+            role="alert"
+            aria-live="polite"
+            className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-5 text-red-700"
+          >
+            {error}
           </div>
+        ) : null}
 
-          <p className="mt-5 text-center text-xs leading-5 text-slate-500">
-            Access is controlled by your assigned
-            system role.
-          </p>
-        </section>
+        <button
+          type="submit"
+          disabled={loading}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#283778] to-[#51408f] px-4 py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-900/15 transition hover:from-[#202f69] hover:to-[#43337e] focus:outline-none focus:ring-4 focus:ring-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {loading ? "Signing in..." : "Sign in"}
+          {!loading ? <span aria-hidden="true">→</span> : null}
+        </button>
+      </form>
+
+      <div className="mt-5 rounded-xl bg-slate-50 px-4 py-3">
+        <p className="text-xs leading-5 text-slate-500">
+          Your access is determined by your organization membership
+          and assigned permissions.
+        </p>
       </div>
-    </main>
+    </AuthLayout>
   );
 }

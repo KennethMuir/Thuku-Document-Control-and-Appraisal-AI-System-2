@@ -1,0 +1,35 @@
+BEGIN;
+
+-- Company registration details. Existing organizations remain unchanged.
+ALTER TABLE organizations
+    ADD COLUMN IF NOT EXISTS company_email VARCHAR(320),
+    ADD COLUMN IF NOT EXISTS industry_other VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS company_email_verified_at TIMESTAMPTZ;
+
+-- Workspace owner's professional details and legal acceptance.
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS job_title VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS terms_version VARCHAR(50);
+
+-- Hashed verification tokens only; never store raw email tokens.
+CREATE TABLE IF NOT EXISTS company_email_verification_tokens (
+    id BIGSERIAL PRIMARY KEY,
+    organization_id BIGINT NOT NULL
+        REFERENCES organizations(id) ON DELETE CASCADE,
+    token_hash VARCHAR(128) NOT NULL UNIQUE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    consumed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS
+    company_email_verification_tokens_org_idx
+    ON company_email_verification_tokens (organization_id);
+
+CREATE INDEX IF NOT EXISTS
+    company_email_verification_tokens_expiry_idx
+    ON company_email_verification_tokens (expires_at);
+
+COMMIT;
+
