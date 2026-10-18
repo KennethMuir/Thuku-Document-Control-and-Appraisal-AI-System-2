@@ -23,6 +23,10 @@ import type {
   MetadataRecord,
 } from "@/types/metadata";
 
+import type {
+  OrganizationDashboardSettings,
+} from "@/types/organizationDashboardSettings";
+
 type DashboardStatKey =
   | "documents"
   | "metadata"
@@ -40,6 +44,7 @@ type DashboardStatCard = {
 
 type DashboardProps = {
   organizationName: string | null;
+  dashboardSettings: OrganizationDashboardSettings;
   statistics: Statistics | null;
 
   departments: Department[];
@@ -134,6 +139,7 @@ function WorkflowStep({
 
 export function Dashboard({
   organizationName,
+  dashboardSettings,
   statistics,
   departments,
   documents,
@@ -151,9 +157,10 @@ export function Dashboard({
   getStatValue,
 }: DashboardProps) {
   return (
-    <>
+    <div className="min-w-0 rounded-2xl" style={{ backgroundColor: dashboardSettings.theme === "DARK" ? "#0F172A" : dashboardSettings.backgroundColor, color: dashboardSettings.theme === "DARK" ? "#F8FAFC" : dashboardSettings.textColor }}>
 
-                <div className="mb-8 rounded-2xl bg-slate-900 p-7 text-white shadow-sm">
+                {dashboardSettings.showWelcomePanel && (
+<div className={`mb-8 rounded-2xl p-7 shadow-sm ${dashboardSettings.dashboardLayout === "COMPACT" ? "md:p-5" : ""}`} style={{ background: dashboardSettings.headerStyle === "GRADIENT" ? `linear-gradient(135deg, ${dashboardSettings.primaryColor}, ${dashboardSettings.accentColor})` : dashboardSettings.primaryColor, color: "#FFFFFF" }}>
                   <div className="max-w-3xl">
                     <p className="text-sm font-semibold text-slate-300">
                       DOCUMENT APPRAISAL AI
@@ -207,8 +214,9 @@ export function Dashboard({
                   </div>
                 </div>
 
-                <div className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                  {statCards.map(
+                )}
+  <div className={`mb-8 grid sm:grid-cols-2 xl:grid-cols-3 ${dashboardSettings.dashboardLayout === "COMPACT" ? "gap-2" : "gap-4"}`}>
+                  {statCards.filter((card) => dashboardSettings.visibleStatCards.includes(card.key)).map(
                     (card) => (
                       <div
                         key={
@@ -479,8 +487,11 @@ export function Dashboard({
                   </div>
                 </div>
               
-    </>
+    </div>
   );
 }
+
+
+
 
 

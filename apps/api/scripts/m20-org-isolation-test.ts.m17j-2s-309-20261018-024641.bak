@@ -1,0 +1,1364 @@
+import "dotenv/config";
+
+import { createHash, randomBytes } from "crypto";
+import { Pool } from "pg";
+
+/*
+ * M20 — ORGANIZATION ISOLATION & PROVISIONING RUNTIME VERIFICATION
+ *
+ * Verifies:
+ *   1. Upload-path department/document-type resolution is organization-scoped.
+ *   2. Cross-organization document/appraisal/file access is denied.
+ *   3. Search and dashboard never surface another organization's rows.
+ *   4. Legacy users.role can no longer grant organization privileges
+ *      without an active membership (fail-closed requireRole).
+ *   5. Signup provisions a private organization with an OWNER membership.
+ *   6. Organization-scoped uniqueness (same name/code reusable across orgs,
+ *      rejected within the same org).
+ */
+
+const API_URL =
+  process.env.M20_TEST_API_URL ||
+  "http://localhost:4000";
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+function assertCondition(
+  condition: unknown,
+  message: string
+): asserts condition {
+  if (!condition) {
+    throw new Error(`ASSERTION FAILED: ${message}`);
+  }
+}
+
+function json(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
+
+async function apiJson(
+  method: string,
+  path: string,
+  body: Record<string, unknown> | undefined,
+  sessionToken: string
+) {
+  const response = await fetch(
+    `${API_URL}${path}`,
+    {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `session=${sessionToken}`,
+      },
+      body: body
+        ? JSON.stringify(body)
+        : null,
+    }
+  );
+
+  const text = await response.text();
+
+  let parsed: unknown = null;
+
+  try {
+    parsed = text ? JSON.parse(text) : null;
+  } catch {
+    parsed = text;
+  }
+
+  return {
+    status: response.status,
+    body: parsed,
+  };
+}
+
+function escapePdfText(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)");
+}
+
+function createPdf(textLines: string[]): Buffer {
+  const streamLines = [
+    "BT",
+    "/F1 12 Tf",
+    "50 760 Td",
+    ...textLines.map(
+      (line, index) =>
+        `(${escapePdfText(line)}) Tj${
+          index < textLines.length - 1
+            ? " 0 -24 Td"
+            : ""
+        }`
+    ),
+    "ET",
+  ];
+
+  const stream =
+    streamLines.join("\n");
+
+  const objects = [
+    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+    "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n",
+    "4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
+    `5 0 obj\n<< /Length ${Buffer.byteLength(stream, "utf8")} >>\nstream\n${stream}\nendstream\nendobj\n`,
+  ];
+
+  let pdf =
+    "%PDF-1.4\n";
+
+  const offsets: number[] = [0];
+
+  for (const object of objects) {
+    offsets.push(
+      Buffer.byteLength(pdf, "utf8")
+    );
+    pdf += object;
+  }
+
+  const xrefOffset =
+    Buffer.byteLength(pdf, "utf8");
+
+  pdf +=
+    `xref\n0 ${objects.length + 1}\n`;
+
+  pdf +=
+    "0000000000 65535 f \n";
+
+  for (
+    let i = 1;
+    i <= objects.length;
+    i++
+  ) {
+    pdf +=
+      `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
+  }
+
+  pdf +=
+    `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n`;
+  pdf +=
+    `startxref\n${xrefOffset}\n%%EOF\n`;
+
+  return Buffer.from(pdf, "utf8");
+}
+
+async function createSession(
+  userId: number,
+  trackedSessionIds: number[]
+): Promise<string> {
+  const rawToken =
+    randomBytes(32).toString("hex");
+
+  const tokenHash =
+    createHash("sha256")
+      .update(rawToken)
+      .digest("hex");
+
+  const sessionResult = await pool.query<{ id: string | number }>(
+    `
+      INSERT INTO sessions (
+        user_id,
+        token_hash,
+        expires_at
+      )
+      VALUES (
+        $1,
+        $2,
+        NOW() + INTERVAL '1 hour'
+      )
+      RETURNING id
+    `,
+    [userId, tokenHash]
+  );
+
+  const sessionId = Number(sessionResult.rows[0]?.id);
+  if (!Number.isInteger(sessionId) || sessionId <= 0) {
+    throw new Error(
+      "Created test session did not return a valid session ID; user-scoped cleanup must remove it."
+    );
+  }
+
+  trackedSessionIds.push(sessionId);
+
+  return rawToken;
+}
+async function main() {
+  const testSuffix = Date.now().toString();
+  const signupEmail = `m20-signup-${testSuffix}@test.local`;
+
+  const createdUserIds: number[] = [];
+  const createdOrganizationIds: number[] = [];
+  const createdSessionIds: number[] = [];
+
+  const createdDocumentIds: number[] = [];
+  const createdMetadataIds: number[] = [];
+  const createdDepartmentIds: number[] = [];
+  const createdWorkspaceIds: number[] = [];
+
+  try {
+    console.log(
+      "\nM20 ORGANIZATION ISOLATION TEST STARTING..."
+    );
+    console.log(`API: ${API_URL}`);
+
+    // ------------------------------------------------------------------
+    // 0. Establish organization A (existing bootstrap).
+    // ------------------------------------------------------------------
+
+    const adminResult = await pool.query<{
+      user_id: number;
+      organization_id: number;
+    }>(`
+      SELECT
+        om.user_id,
+        om.organization_id
+      FROM organization_memberships om
+      INNER JOIN users u
+        ON u.id = om.user_id
+      INNER JOIN organizations o
+        ON o.id = om.organization_id
+      WHERE
+        om.is_active = TRUE
+        AND u.is_active = TRUE
+        AND om.role = 'OWNER'
+        AND o.status = 'ACTIVE'
+      ORDER BY om.user_id
+      LIMIT 1
+    `);
+
+    assertCondition(
+      adminResult.rows.length === 1,
+      "No active OWNER is available for the M20 isolation test."
+    );
+
+    const orgAUserId =
+      adminResult.rows[0]!.user_id;
+    const orgAId =
+      adminResult.rows[0]!.organization_id;
+
+    const sessionA =
+      await createSession(orgAUserId, createdSessionIds);
+
+    console.log(
+      `Organization A: user=${orgAUserId}, organization=${orgAId}`
+    );
+
+    // Locate org A department/type/reference for cross-org tests.
+    const orgADepartment =
+      await pool.query<{
+        id: number;
+        name: string;
+      }>(
+        `
+          SELECT id, name
+          FROM departments
+          WHERE organization_id = $1
+          ORDER BY id
+          LIMIT 1
+        `,
+        [orgAId]
+      );
+
+    const orgAType =
+      await pool.query<{
+        id: number;
+        name: string;
+      }>(
+        `
+          SELECT id, name
+          FROM document_types
+          WHERE organization_id = $1
+          ORDER BY id
+          LIMIT 1
+        `,
+        [orgAId]
+      );
+
+    assertCondition(
+      orgADepartment.rows.length === 1,
+      "Organization A has no departments."
+    );
+
+    assertCondition(
+      orgAType.rows.length === 1,
+      "Organization A has no document types."
+    );
+
+    const orgADepartmentName =
+      orgADepartment.rows[0]!.name;
+
+    const orgATypeName =
+      orgAType.rows[0]!.name;
+
+    // Locate a real org A metadata reference for search tests.
+    let orgAMetadata =
+      await pool.query<{
+        id: number;
+        reference_code: string;
+      }>(
+        `
+          SELECT id, reference_code
+          FROM metadata_records
+          WHERE organization_id = $1
+          ORDER BY id
+          LIMIT 1
+        `,
+        [orgAId]
+      );
+
+    if (orgAMetadata.rows.length === 0) {
+      const created = await pool.query<{
+        id: number;
+        reference_code: string;
+      }>(
+        `
+          INSERT INTO metadata_records (
+            reference_code,
+            title,
+            status,
+            organization_id
+          )
+          VALUES (
+            $1,
+            'M20 Org A only metadata',
+            'AWAITING_DOCUMENT',
+            $2
+          )
+          RETURNING id, reference_code
+        `,
+        [
+          `M20-ORG-A-ONLY-${testSuffix}`,
+          orgAId,
+        ]
+      );
+
+      createdMetadataIds.push(
+        created.rows[0]!.id
+      );
+
+      orgAMetadata = created;
+    }
+
+    const orgAReference =
+      orgAMetadata.rows[0]!.reference_code;
+
+    const orgAMetadataId =
+      Number(orgAMetadata.rows[0]!.id);
+
+    // ------------------------------------------------------------------
+    // 1. Create organization B with an OWNER account.
+    // ------------------------------------------------------------------
+
+    const orgBCreation = await pool.query<{
+      id: number;
+    }>(
+      `
+        INSERT INTO organizations (
+          name,
+          slug,
+          status
+        )
+        VALUES (
+          $1,
+          $2,
+          'ACTIVE'
+        )
+        RETURNING id
+      `,
+      [
+        `M20 Isolation Test Org ${testSuffix}`,
+        `m20-org-b-${testSuffix}`,
+      ]
+    );
+
+    const orgBId =
+      Number(orgBCreation.rows[0]!.id);
+
+    createdOrganizationIds.push(orgBId);
+
+    const orgBUser = await pool.query<{
+      id: number;
+    }>(
+      `
+        INSERT INTO users (
+          email,
+          password_hash,
+          full_name,
+          role,
+          is_active
+        )
+        VALUES (
+          $1,
+          $2,
+          $3,
+          'VIEWER',
+          TRUE
+        )
+        RETURNING id
+      `,
+      [
+        `m20-org-b-${testSuffix}@test.local`,
+        "unused",
+        "M20 Org B Owner",
+      ]
+    );
+
+    const orgBUserId =
+      Number(orgBUser.rows[0]!.id);
+
+    createdUserIds.push(orgBUserId);
+
+    await pool.query(
+      `
+        INSERT INTO organization_memberships (
+          organization_id,
+          user_id,
+          role,
+          is_active
+        )
+        VALUES (
+          $1,
+          $2,
+          'OWNER',
+          TRUE
+        )
+      `,
+      [orgBId, orgBUserId]
+    );
+
+    const sessionB =
+      await createSession(orgBUserId, createdSessionIds);
+
+    console.log(
+      `Organization B: user=${orgBUserId}, organization=${orgBId}`
+    );
+
+    // ------------------------------------------------------------------
+    // 2. Upload from org A: ensure upload path works. (Control)
+    // ------------------------------------------------------------------
+
+    const controlPdf = createPdf([
+      "M20 CONTROL DOCUMENT A",
+      "One off unique title",
+      "Department: " +
+        orgADepartmentName,
+      "Document Type: " +
+        orgATypeName,
+    ]);
+
+    const controlForm = new FormData();
+    controlForm.append(
+      "file",
+      new Blob(
+        [
+          controlPdf.buffer
+            .slice(
+              controlPdf.byteOffset,
+              controlPdf.byteOffset +
+                controlPdf.byteLength
+            ) as ArrayBuffer,
+        ],
+        { type: "application/pdf" }
+      ),
+      `M20 Control ${testSuffix}.pdf`
+    );
+
+    const controlResponse =
+      await fetch(
+        `${API_URL}/api/documents/upload`,
+        {
+          method: "POST",
+          headers: {
+            Cookie: `session=${sessionA}`,
+          },
+          body: controlForm,
+        }
+      );
+
+    const controlBody = await controlResponse
+      .json()
+      .catch(() => null);
+
+    assertCondition(
+      controlResponse.ok,
+      `Control upload from org A failed: ${json(controlBody)}`
+    );
+
+    const controlDocumentId =
+      Number(
+        controlBody?.document?.id
+      );
+
+    assertCondition(
+      Number.isInteger(controlDocumentId) &&
+        controlDocumentId > 0,
+      `Control upload returned an invalid document ID: ${json(controlBody)}`
+    );
+
+    createdDocumentIds.push(
+      controlDocumentId
+    );
+
+    // ------------------------------------------------------------------
+    // 3. Upload from org B whose text names ORG A department/type.
+    //    The upload must NOT resolve org A's department/document type.
+    // ------------------------------------------------------------------
+
+    const crossOrgPdf = createPdf([
+      "M20 CROSS ORG UPLOAD",
+      "Some unique doc title",
+      "Department: " +
+        orgADepartmentName,
+      "Document Type: " +
+        orgATypeName,
+    ]);
+
+    const crossOrgForm = new FormData();
+    crossOrgForm.append(
+      "file",
+      new Blob(
+        [
+          crossOrgPdf.buffer
+            .slice(
+              crossOrgPdf.byteOffset,
+              crossOrgPdf.byteOffset +
+                crossOrgPdf.byteLength
+            ) as ArrayBuffer,
+        ],
+        { type: "application/pdf" }
+      ),
+      `M20 Cross Org ${testSuffix}.pdf`
+    );
+
+    const crossOrgResponse =
+      await fetch(
+        `${API_URL}/api/documents/upload`,
+        {
+          method: "POST",
+          headers: {
+            Cookie: `session=${sessionB}`,
+          },
+          body: crossOrgForm,
+        }
+      );
+
+    const crossOrgBody = await crossOrgResponse
+      .json()
+      .catch(() => null);
+
+    assertCondition(
+      crossOrgResponse.ok,
+      `Org B upload failed: ${json(crossOrgBody)}`
+    );
+
+    const crossOrgDocumentId =
+      Number(
+        crossOrgBody?.document?.id
+      );
+
+    assertCondition(
+      Number.isInteger(crossOrgDocumentId) &&
+        crossOrgDocumentId > 0,
+      `Org B upload returned an invalid document ID: ${json(crossOrgBody)}`
+    );
+
+    createdDocumentIds.push(
+      crossOrgDocumentId
+    );
+
+    const appraisalMetadata =
+      crossOrgBody?.appraisal?.metadata;
+
+    console.log(
+      "Org B upload resolution:",
+      json({
+        department_id:
+          appraisalMetadata?.department_id,
+        department_name:
+          appraisalMetadata?.department_name,
+        document_type_id:
+          appraisalMetadata?.document_type_id,
+        document_type_name:
+          appraisalMetadata?.document_type_name,
+      })
+    );
+
+    assertCondition(
+      appraisalMetadata?.department_id ===
+        undefined ||
+        appraisalMetadata?.department_id ===
+          null,
+      "Org B upload resolved an org A department into its appraisal."
+    );
+
+    assertCondition(
+      appraisalMetadata?.document_type_id ===
+        undefined ||
+        appraisalMetadata?.document_type_id ===
+          null,
+      "Org B upload resolved an org A document type into its appraisal."
+    );
+
+    const crossOrgDocument =
+      await pool.query<{
+        department_id: number | null;
+        document_type_id: number | null;
+      }>(
+        `
+          SELECT
+            department_id,
+            document_type_id
+          FROM documents
+          WHERE id = $1
+            AND organization_id = $2
+        `,
+        [crossOrgDocumentId, orgBId]
+      );
+
+    assertCondition(
+      crossOrgDocument.rows[0]?.department_id ===
+        null,
+      "Org B document was linked to an org A department."
+    );
+
+    assertCondition(
+      crossOrgDocument.rows[0]?.document_type_id ===
+        null,
+      "Org B document was linked to an org A document type."
+    );
+
+    console.log(
+      "PASS: Upload-path department/document-type resolution is organization-scoped."
+    );
+
+    // ------------------------------------------------------------------
+    // 4. Org B must not be able to read org A documents, appraise them,
+    //    link them, or fetch org A files.
+    // ------------------------------------------------------------------
+
+    const crossOrgList = await apiJson(
+      "GET",
+      "/api/documents",
+      undefined,
+      sessionB
+    );
+
+    assertCondition(
+      crossOrgList.status === 200,
+      "Org B document list failed."
+    );
+
+    const visibleIds = (
+      (crossOrgList.body as any)
+        ?.documents ?? []
+    ).map((row: any) =>
+      Number(row.id)
+    );
+
+    assertCondition(
+      !visibleIds.includes(controlDocumentId),
+      `Org B document list exposed org A document ${controlDocumentId}.`
+    );
+
+    const crossOrgAppraisal =
+      await apiJson(
+        "GET",
+        `/api/documents/${controlDocumentId}/appraisal`,
+        undefined,
+        sessionB
+      );
+
+    assertCondition(
+      crossOrgAppraisal.status === 404,
+      `Org B could view org A appraisal state (${crossOrgAppraisal.status}).`
+    );
+
+    const crossOrgReview =
+      await apiJson(
+        "POST",
+        `/api/documents/${controlDocumentId}/review`,
+        {
+          decision: "APPROVE",
+          metadataRecordId:
+            orgAMetadataId,
+        },
+        sessionB
+      );
+
+    assertCondition(
+      crossOrgReview.status === 404,
+      `Org B could appraise org A document (${crossOrgReview.status}).`
+    );
+
+    const crossOrgLink =
+      await apiJson(
+        "POST",
+        `/api/documents/${controlDocumentId}/link`,
+        {
+          metadataRecordId:
+            orgAMetadataId,
+        },
+        sessionB
+      );
+
+    assertCondition(
+      crossOrgLink.status === 404,
+      `Org B could link org A document (${crossOrgLink.status}).`
+    );
+
+    const crossOrgFile =
+      await apiJson(
+        "GET",
+        `/api/documents/${controlDocumentId}/file`,
+        undefined,
+        sessionB
+      );
+
+    assertCondition(
+      crossOrgFile.status === 404,
+      `Org B could fetch org A file (${crossOrgFile.status}).`
+    );
+
+    console.log(
+      "PASS: Cross-organization document read, appraisal, link, and file access are denied."
+    );
+
+    // ------------------------------------------------------------------
+    // 5. Search must not surface org A references to org B.
+    // ------------------------------------------------------------------
+
+    const searchResult = await apiJson(
+      "GET",
+      `/api/search?q=${encodeURIComponent(
+        orgAReference
+      )}`,
+      undefined,
+      sessionB
+    );
+
+    assertCondition(
+      searchResult.status === 200,
+      "Org B search failed."
+    );
+
+    const searchVisibleReferences = [
+      ...(((searchResult.body as any)
+        ?.documents ?? []).map(
+        (row: any) =>
+          String(row.reference_code)
+      )),
+      ...(((searchResult.body as any)
+        ?.metadata ?? []).map(
+        (row: any) =>
+          String(row.reference_code)
+      )),
+    ];
+
+    assertCondition(
+      !searchVisibleReferences.includes(
+        orgAReference
+      ),
+      "Org B search surfaced an org A metadata reference."
+    );
+
+    console.log(
+      "PASS: Search is organization-scoped."
+    );
+
+    // ------------------------------------------------------------------
+    // 6. Dashboard is organization-scoped.
+    // ------------------------------------------------------------------
+
+    const dashboardB = await apiJson(
+      "GET",
+      "/api/dashboard",
+      undefined,
+      sessionB
+    );
+
+    assertCondition(
+      dashboardB.status === 200,
+      "Org B dashboard failed."
+    );
+
+    console.log(
+      "PASS: Dashboard responds within organization B context."
+    );
+
+    // ------------------------------------------------------------------
+    // 7. Fail-closed authorization: a legacy 'ADMIN' user with NO
+    //    membership must be denied, not granted org privileges.
+    // ------------------------------------------------------------------
+
+    const legacyUser = await pool.query<{
+      id: number;
+    }>(
+      `
+        INSERT INTO users (
+          email,
+          password_hash,
+          full_name,
+          role,
+          is_active
+        )
+        VALUES (
+          $1,
+          $2,
+          $3,
+          'ADMIN',
+          TRUE
+        )
+        RETURNING id
+      `,
+      [
+        `m20-legacy-${testSuffix}@test.local`,
+        "unused",
+        "M20 Legacy Role User",
+      ]
+    );
+
+    const legacyUserId =
+      Number(legacyUser.rows[0]!.id);
+
+    createdUserIds.push(legacyUserId);
+
+    const legacyToken =
+      await createSession(legacyUserId, createdSessionIds);
+
+    const legacyCreate =
+      await apiJson(
+        "POST",
+        "/api/departments",
+        {
+          name: `Legacy Role Dept ${testSuffix}`,
+          code: `LRD-${testSuffix}`,
+        },
+        legacyToken
+      );
+
+    assertCondition(
+      legacyCreate.status === 403,
+      `Legacy users.role granted organization privileges without membership (${legacyCreate.status}).`
+    );
+
+    console.log(
+      "PASS: Legacy users.role no longer grants organization privileges without an active membership."
+    );
+
+    // ------------------------------------------------------------------
+    // 8. Signup provisions a private organization with OWNER membership.
+    // ------------------------------------------------------------------
+
+
+    const signupResponse = await fetch(
+      `${API_URL}/api/auth/signup`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          fullName: "M20 Signup User",
+          email: signupEmail,
+          password: "password123",
+          confirmPassword:
+            "password123",
+        }),
+      }
+    );
+
+    const setCookie =
+      signupResponse.headers.get(
+        "set-cookie"
+      );
+
+    const signupBody = await signupResponse
+      .json()
+      .catch(() => null);
+
+    assertCondition(
+      signupResponse.status === 201,
+      `Signup failed: ${json(signupBody)}`
+    );
+
+    assertCondition(
+      Boolean(setCookie),
+      "Signup did not return a session cookie."
+    );
+
+    const signupToken =
+      String(setCookie)
+        .split(";")[0]!
+        .replace("session=", "")
+        .trim();
+
+    const signupUserId = Number(
+      (signupBody as any)?.user?.id
+    );
+
+    assertCondition(
+      Number.isInteger(signupUserId) &&
+        signupUserId > 0,
+      "Signup did not return a user id."
+    );
+
+    createdUserIds.push(signupUserId);
+
+    // Recover the signup-created organization before later assertions can fail.
+    const signupOrganizationBySlug = await pool.query<{ id: number }>(
+      `
+        SELECT id
+        FROM organizations
+        WHERE slug = $1
+        LIMIT 1
+      `,
+      [`personal-${signupUserId}`]
+    );
+
+    for (const row of signupOrganizationBySlug.rows) {
+      const organizationId = Number(row.id);
+      if (Number.isInteger(organizationId) && organizationId > 0 &&
+          !createdOrganizationIds.includes(organizationId)) {
+        createdOrganizationIds.push(organizationId);
+      }
+    }
+
+    const provisioned =
+      await pool.query<{
+        organization_id: number;
+        role: string;
+        workspace_count: string;
+      }>(
+        `
+          SELECT
+            om.organization_id,
+            om.role,
+            (
+              SELECT COUNT(*)::text
+              FROM workspaces w
+              WHERE w.organization_id =
+                    om.organization_id
+            ) AS workspace_count
+          FROM organization_memberships om
+          WHERE om.user_id = $1
+            AND om.is_active = TRUE
+          LIMIT 1
+        `,
+        [signupUserId]
+      );
+
+    assertCondition(
+      provisioned.rows.length === 1,
+      "Signup did not provision an organization membership."
+    );
+
+    const signupOrgId = Number(
+      provisioned.rows[0]!.organization_id
+    );
+
+    assertCondition(
+      Number.isInteger(signupOrgId) &&
+        signupOrgId > 0,
+      "Signup returned an invalid organization id."
+    );
+    if (!createdOrganizationIds.includes(signupOrgId)) {
+      createdOrganizationIds.push(signupOrgId);
+    }
+
+
+    assertCondition(
+      provisioned.rows[0]!.role === "OWNER",
+      "Signup did not provision an OWNER membership."
+    );
+
+    const personalSlug = await pool.query<{
+      slug: string;
+    }>(
+      `
+        SELECT slug
+        FROM organizations
+        WHERE id = $1
+      `,
+      [signupOrgId]
+    );
+
+    assertCondition(
+      personalSlug.rows[0]?.slug ===
+        `personal-${signupUserId}`,
+      "Signup organization was not provisioned as a private personal organization."
+    );
+
+
+    const signupDashboard =
+      await apiJson(
+        "GET",
+        "/api/dashboard",
+        undefined,
+        signupToken
+      );
+
+    assertCondition(
+      signupDashboard.status === 200,
+      "New signup could not access its own organization dashboard."
+    );
+
+    console.log(
+      "PASS: Signup provisions a private personal organization with an OWNER membership and no arbitrary org joining."
+    );
+
+    // ------------------------------------------------------------------
+    // 9. Organization-scoped uniqueness.
+    // ------------------------------------------------------------------
+
+    const orgADuplicate =
+      await apiJson(
+        "POST",
+        "/api/departments",
+        {
+          name:
+            orgADepartmentName,
+          code: `DUP-${testSuffix}`,
+        },
+        sessionA
+      );
+
+    assertCondition(
+      orgADuplicate.status === 409,
+      `Duplicating a department name within org A was allowed (${orgADuplicate.status}).`
+    );
+
+    const orgBReuse = await apiJson(
+      "POST",
+      "/api/departments",
+      {
+        name: orgADepartmentName,
+        code: `REUSE-${testSuffix}`,
+      },
+      sessionB
+    );
+
+    assertCondition(
+      orgBReuse.status === 201,
+      `Reusing an org A department name in org B was rejected (${orgBReuse.status}).`
+    );
+
+    const orgBDepartmentId = Number(
+      (orgBReuse.body as any)?.department?.id
+    );
+
+    assertCondition(
+      Number.isInteger(orgBDepartmentId) &&
+        orgBDepartmentId > 0,
+      `Department creation returned an invalid department ID: ${json(orgBReuse.body)}`
+    );
+
+    createdDepartmentIds.push(
+      orgBDepartmentId
+    );
+
+    const orgBSameCode = await apiJson(
+      "POST",
+      "/api/departments",
+      {
+        name: `Different Name ${testSuffix}`,
+        code: `REUSE-${testSuffix}`,
+      },
+      sessionB
+    );
+
+    assertCondition(
+      orgBSameCode.status === 409,
+      `Duplicating a department code within org B was allowed (${orgBSameCode.status}).`
+    );
+
+    console.log(
+      "PASS: Department names and codes are unique within an organization and reusable across organizations."
+    );
+
+    // ------------------------------------------------------------------
+    // Result.
+    // ------------------------------------------------------------------
+
+    console.log(
+      "\n=============================================="
+    );
+    console.log(
+      "M20 ORGANIZATION ISOLATION TEST PASSED"
+    );
+    console.log(
+      "=============================================="
+    );
+    console.log(
+      "Upload resolution: organization-scoped."
+    );
+    console.log(
+      "Cross-org access: denied (documents, appraisal, link, file)."
+    );
+    console.log(
+      "Search/dashboard: organization-scoped."
+    );
+    console.log(
+      "Authorization: fail-closed on organization membership."
+    );
+    console.log(
+      "Provisioning: signup creates a private owned organization."
+    );
+    console.log(
+      "Uniqueness: organization-scoped."
+    );
+    console.log(
+      "=============================================="
+    );
+  } catch (error) {
+    console.error(
+      "\n=============================================="
+    );
+    console.error(
+      "M20 ORGANIZATION ISOLATION TEST FAILED"
+    );
+    console.error(
+      "=============================================="
+    );
+
+    if (error instanceof Error) {
+      console.error(error.message);
+    } else {
+      console.error(error);
+    }
+
+    process.exitCode = 1;
+  } finally {
+    // ------------------------------------------------------------------
+    // Cleanup.
+    // Each operation is isolated so one failure does not skip later attempts.
+    const cleanupErrors: string[] = [];
+    let allCleanupOperationsSucceeded = true;
+
+    // Recover only this run's uniquely named signup fixture if response
+    // assertions failed after the signup transaction committed.
+    try {
+      const signupUserRecovery = await pool.query<{ id: string | number }>(
+        `
+          SELECT id
+          FROM users
+          WHERE LOWER(email) = LOWER($1)
+            AND full_name = $2
+          LIMIT 1
+        `,
+        [signupEmail, "M20 Signup User"]
+      );
+
+      for (const row of signupUserRecovery.rows) {
+        const userId = Number(row.id);
+
+        if (!Number.isInteger(userId) || userId <= 0) {
+          continue;
+        }
+
+        if (!createdUserIds.includes(userId)) {
+          createdUserIds.push(userId);
+        }
+
+        const organizationRecovery = await pool.query<{
+          id: string | number;
+        }>(
+          `
+            SELECT id
+            FROM organizations
+            WHERE slug = $1
+            LIMIT 1
+          `,
+          [`personal-${userId}`]
+        );
+
+        for (const organizationRow of organizationRecovery.rows) {
+          const organizationId = Number(organizationRow.id);
+
+          if (
+            Number.isInteger(organizationId) &&
+            organizationId > 0 &&
+            !createdOrganizationIds.includes(organizationId)
+          ) {
+            createdOrganizationIds.push(organizationId);
+          }
+        }
+      }
+
+      console.log("Cleanup recovery PASS: signup fixture lookup completed.");
+    } catch (recoveryError) {
+      allCleanupOperationsSucceeded = false;
+
+      const message =
+        recoveryError instanceof Error
+          ? recoveryError.message
+          : String(recoveryError);
+
+      cleanupErrors.push(`signup fixture recovery: ${message}`);
+      console.error(`Cleanup recovery FAIL: signup fixture: ${message}`);
+    }
+
+    const runCleanup = async (
+      label: string,
+      operation: () => Promise<{ rowCount: number | null }>,
+      expectedRowCount?: number
+    ): Promise<boolean> => {
+      try {
+        const result = await operation();
+
+        if (
+          expectedRowCount !== undefined &&
+          result.rowCount !== expectedRowCount
+        ) {
+          throw new Error(
+            `Expected ${expectedRowCount} affected row(s), got ${result.rowCount ?? "unknown"}.`
+          );
+        }
+
+        console.log(`Cleanup PASS: ${label}`);
+        return true;
+      } catch (cleanupError) {
+        allCleanupOperationsSucceeded = false;
+        const message =
+          cleanupError instanceof Error
+            ? cleanupError.message
+            : String(cleanupError);
+
+        cleanupErrors.push(`${label}: ${message}`);
+        console.error(`Cleanup FAIL: ${label}: ${message}`);
+        return false;
+      }
+    };
+
+    if (createdDocumentIds.length > 0) {
+      await runCleanup("test documents", () =>
+        pool.query(
+          `
+            DELETE FROM documents
+            WHERE id = ANY($1::bigint[])
+          `,
+          [createdDocumentIds]
+        ),
+        new Set(createdDocumentIds).size
+      );
+    }
+
+    if (createdDepartmentIds.length > 0) {
+      await runCleanup("test departments", () =>
+        pool.query(
+          `
+            DELETE FROM departments
+            WHERE id = ANY($1::bigint[])
+          `,
+          [createdDepartmentIds]
+        ),
+        new Set(createdDepartmentIds).size
+      );
+    }
+
+    if (createdMetadataIds.length > 0) {
+      await runCleanup("test-created metadata", () =>
+        pool.query(
+          `
+            DELETE FROM metadata_records
+            WHERE id = ANY($1::bigint[])
+          `,
+          [createdMetadataIds]
+        ),
+        new Set(createdMetadataIds).size
+      );
+    }
+
+    if (createdSessionIds.length > 0) {
+      await runCleanup("specifically tracked test sessions", () =>
+        pool.query(
+          `
+            DELETE FROM sessions
+            WHERE id = ANY($1::bigint[])
+          `,
+          [createdSessionIds]
+        ),
+        new Set(createdSessionIds).size
+      );
+    }
+
+    let organizationsCleanupSucceeded = true;
+
+    if (createdOrganizationIds.length > 0) {
+      if (allCleanupOperationsSucceeded) {
+        organizationsCleanupSucceeded = await runCleanup(
+          "test-created organizations",
+          () =>
+            pool.query(
+              `
+                DELETE FROM organizations
+                WHERE id = ANY($1::bigint[])
+              `,
+              [createdOrganizationIds]
+            ),
+          new Set(createdOrganizationIds).size
+        );
+      } else {
+        organizationsCleanupSucceeded = false;
+        cleanupErrors.push(
+          "test-created organizations: deletion skipped because prerequisite cleanup failed"
+        );
+        console.error(
+          "Cleanup SKIPPED: organization deletion because prerequisite cleanup failed."
+        );
+      }
+    }
+    if (createdUserIds.length > 0) {
+      const testSessionsCleanupSucceeded = await runCleanup("test-user sessions", () =>
+        pool.query(
+          `
+            DELETE FROM sessions
+            WHERE user_id = ANY($1::bigint[])
+          `,
+          [createdUserIds]
+        )
+      );
+
+      if (organizationsCleanupSucceeded && allCleanupOperationsSucceeded && testSessionsCleanupSucceeded) {
+        await runCleanup("test users", () =>
+          pool.query(
+            `
+              DELETE FROM users
+              WHERE id = ANY($1::bigint[])
+            `,
+            [createdUserIds]
+          ),
+          new Set(createdUserIds).size
+        );
+      } else {
+        console.error("Cleanup SKIPPED: test-user deletion because one or more prerequisite cleanup operations failed.");
+        cleanupErrors.push("test users: skipped because prerequisite cleanup failed");
+      }
+    }
+
+    if (cleanupErrors.length > 0) {
+      console.error(
+        "\nWARNING: One or more M20 isolation cleanup operations failed."
+      );
+      process.exitCode = 1;
+    } else {
+      console.log("Cleanup: all attempted M20 isolation cleanup operations succeeded.");
+    }
+    try {
+      await pool.end();
+    } catch (poolEndError) {
+      const message =
+        poolEndError instanceof Error
+          ? poolEndError.message
+          : String(poolEndError);
+
+      console.error(`Cleanup FAIL: pool shutdown: ${message}`);
+      process.exitCode = 1;
+    }
+  }
+}
+
+void main();

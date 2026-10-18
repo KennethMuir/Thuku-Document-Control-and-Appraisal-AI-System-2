@@ -20,10 +20,10 @@ export function NavItem({
           ? "page"
           : undefined
       }
-      className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 ${
+      className={`app-sidebar-nav-item flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 ${
         active
-          ? "bg-slate-900 text-white shadow-sm"
-          : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+          ? "app-sidebar-nav-item-active"
+          : "app-sidebar-nav-item-inactive"
       }`}
     >
       <span
@@ -37,3 +37,4 @@ export function NavItem({
     </button>
   );
 }
+

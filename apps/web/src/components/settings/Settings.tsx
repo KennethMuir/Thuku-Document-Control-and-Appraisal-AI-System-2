@@ -2,6 +2,8 @@
 
 import type { ReactNode } from "react";
 
+import { DashboardCustomization } from "@/components/settings/DashboardCustomization";
+
 import type {
   AuthUser,
   UserManagementUser,
@@ -93,6 +95,15 @@ export function Settings({
           Basic system information and current configuration.
         </p>
       </div>
+
+      {(authUser?.organizationRole === "OWNER" ||
+        authUser?.organizationRole === "ADMIN" ||
+        (!authUser?.organizationRole && authUser?.role === "OWNER") ||
+        (!authUser?.organizationRole && authUser?.role === "ADMIN")) && (
+        <div className="mb-8">
+          <DashboardCustomization />
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <SettingsCard
@@ -302,3 +313,4 @@ export function Settings({
     </>
   );
 }
+

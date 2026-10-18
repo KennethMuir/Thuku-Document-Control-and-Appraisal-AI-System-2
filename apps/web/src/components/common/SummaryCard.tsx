@@ -10,12 +10,12 @@ export function SummaryCard({
   value,
 }: SummaryCardProps) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <p className="text-sm font-medium text-slate-500">
+    <div className="app-summary-card rounded-2xl border p-5 shadow-sm">
+      <p className="app-summary-card-label text-sm font-medium">
         {label}
       </p>
 
-      <p className="mt-2 text-3xl font-bold tracking-tight">
+      <p className="app-summary-card-value mt-2 text-3xl font-bold tracking-tight">
         {value}
       </p>
     </div>

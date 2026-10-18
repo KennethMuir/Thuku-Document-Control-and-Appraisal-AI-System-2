@@ -36,6 +36,11 @@ import {
   getDashboard,
 } from "@/lib/api/dashboard";
 
+import { getOrganizationDashboardSettings } from "@/lib/api/organizationDashboardSettings";
+import { getSelectedOrganizationId } from "@/lib/organization/selection";
+import { DEFAULT_ORGANIZATION_DASHBOARD_SETTINGS } from "@/types/organizationDashboardSettings";
+import type { OrganizationDashboardSettings } from "@/types/organizationDashboardSettings";
+
 import {
   getDocumentTypes,
 } from "@/lib/api/document-types";
@@ -270,6 +275,82 @@ export default function Home() {
     canManageDomains,
     logout,
   } = useAuthSession();
+
+  const [dashboardSettings, setDashboardSettings] =
+    useState<OrganizationDashboardSettings>(
+      DEFAULT_ORGANIZATION_DASHBOARD_SETTINGS
+    );
+
+  const [selectedDashboardOrganizationId, setSelectedDashboardOrganizationId] =
+    useState<number | null>(null);
+
+  useEffect(() => {
+    const refreshDashboardSettings = () => {
+      getOrganizationDashboardSettings()
+        .then((result) => {
+          if (result.settings) {
+            setDashboardSettings(result.settings);
+          }
+        })
+        .catch((error: unknown) => {
+          console.error("Failed to refresh dashboard settings:", error);
+        });
+    };
+
+    window.addEventListener("organization-dashboard-settings-updated", refreshDashboardSettings);
+    return () => {
+      window.removeEventListener("organization-dashboard-settings-updated", refreshDashboardSettings);
+    };
+  }, []);
+  useEffect(() => {
+    const syncSelectedOrganization = () => {
+      setSelectedDashboardOrganizationId(getSelectedOrganizationId());
+    };
+
+    syncSelectedOrganization();
+    window.addEventListener("storage", syncSelectedOrganization);
+    window.addEventListener(
+      "organization-selection-changed",
+      syncSelectedOrganization
+    );
+
+    return () => {
+      window.removeEventListener("storage", syncSelectedOrganization);
+      window.removeEventListener(
+        "organization-selection-changed",
+        syncSelectedOrganization
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    if (authLoading || !authUser) {
+      return;
+    }
+
+    let cancelled = false;
+    setDashboardSettings(DEFAULT_ORGANIZATION_DASHBOARD_SETTINGS);
+
+    getOrganizationDashboardSettings()
+      .then((result) => {
+        if (!cancelled && result.settings) {
+          setDashboardSettings(result.settings);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          console.error(
+            "Unable to load organization dashboard settings:",
+            error
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, authUser, selectedDashboardOrganizationId]);
+
 
   /*
    *
@@ -1204,6 +1285,7 @@ export default function Home() {
             {activePage ===
               "Dashboard" && (
               <Dashboard
+                dashboardSettings={dashboardSettings}
                 organizationName={
                   organizationName
                 }
@@ -1722,5 +1804,7 @@ export default function Home() {
     </main>
   );
 }
+
+
 
 

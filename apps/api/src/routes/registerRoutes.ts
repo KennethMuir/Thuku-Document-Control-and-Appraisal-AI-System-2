@@ -11,6 +11,7 @@ import { createDocumentTypesRouter } from "./documentTypes.js";
 import { createSearchRouter } from "./search.js";
 import { createHealthRouter } from "./health.js";
 import { createDashboardRouter } from "./dashboard.js";
+import { createOrganizationDashboardSettingsRouter } from "./organizationDashboardSettings.js";
 import { createMetadataRouter } from "./metadata.js";
 import { createDocumentsRouter } from "./documents.js";
 import { createDocumentDetailsRouter } from "./documentDetails.js";
@@ -33,7 +34,9 @@ export function registerRoutes(
   pool: Pool,
   localFileStorage: LocalFileStorage,
   upload: multer.Multer,
-  temporaryRoot: string
+  temporaryRoot: string,
+  brandingRoot: string,
+  brandingUpload: multer.Multer
 ): void {
   app.use(
     "/api/auth",
@@ -68,6 +71,10 @@ export function registerRoutes(
   app.use(
     "/api/dashboard",
     createDashboardRouter(pool)
+  );
+  app.use(
+    "/api/organization-dashboard-settings",
+    createOrganizationDashboardSettingsRouter(pool, brandingRoot, brandingUpload)
   );
 
   app.use(
@@ -137,6 +144,8 @@ export function registerRoutes(
     )
   );
 }
+
+
 
 
 

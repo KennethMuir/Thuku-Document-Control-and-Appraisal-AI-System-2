@@ -1,0 +1,257 @@
+import assert from "node:assert/strict";
+import express from "express";
+import type { Pool, PoolClient } from "pg";
+
+import { createAuthRouter } from "../src/routes/auth.js";
+
+type MockOptions = {
+  failTrialInsert?: boolean;
+  existingEmail?: boolean;
+};
+
+type MockResult = {
+  rows: Array<Record<string, unknown>>;
+  rowCount: number;
+};
+
+function makePool(options: MockOptions = {}) {
+  const calls: Array<{ sql: string; params: unknown[] }> = [];
+  let released = false;
+
+  const client = {
+    async query(sql: string, params: unknown[] = []): Promise<MockResult> {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      calls.push({ sql: normalized, params });
+
+      if (normalized === "BEGIN" ||
+          normalized === "COMMIT" ||
+          normalized === "ROLLBACK") {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (normalized.includes("INSERT INTO users")) {
+        return {
+          rows: [{
+            id: 501,
+            email: "trial-test@example.invalid",
+            fullName: "Signup Trial Test",
+            role: "VIEWER",
+            isActive: true,
+          }],
+          rowCount: 1,
+        };
+      }
+
+      if (normalized.includes("INSERT INTO organizations")) {
+        return { rows: [{ id: 601 }], rowCount: 1 };
+      }
+
+      if (normalized.includes("INSERT INTO organization_trials")) {
+        if (options.failTrialInsert) {
+          throw new Error("Simulated trial insert failure");
+        }
+        return { rows: [], rowCount: 1 };
+      }
+
+      if (normalized.includes("INSERT INTO organization_memberships")) {
+        return { rows: [], rowCount: 1 };
+      }
+
+      if (normalized.includes("INSERT INTO workspaces")) {
+        return { rows: [], rowCount: 1 };
+      }
+
+      if (normalized.includes("INSERT INTO sessions")) {
+        return { rows: [], rowCount: 1 };
+      }
+
+      throw new Error(`Unexpected mock client SQL: ${normalized}`);
+    },
+
+    release() {
+      released = true;
+    },
+  };
+
+  const pool = {
+    async query(sql: string, params: unknown[] = []): Promise<MockResult> {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      calls.push({ sql: normalized, params });
+
+      if (normalized.includes("FROM users") &&
+          normalized.includes("LOWER(email)")) {
+        return {
+          rows: options.existingEmail ? [{ id: 1 }] : [],
+          rowCount: options.existingEmail ? 1 : 0,
+        };
+      }
+
+      throw new Error(`Unexpected mock pool SQL: ${normalized}`);
+    },
+
+    async connect() {
+      return client;
+    },
+  } as unknown as Pool;
+
+  return {
+    pool,
+    calls,
+    released: () => released,
+  };
+}
+
+async function requestSignup(
+  pool: Pool,
+  body: Record<string, unknown>,
+) {
+  const app = express();
+  app.use(express.json());
+  app.use("/api/auth", createAuthRouter(pool));
+
+  const server = app.listen(0, "127.0.0.1");
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once("listening", resolve);
+      server.once("error", reject);
+    });
+
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+
+    return await fetch(
+      `http://127.0.0.1:${address.port}/api/auth/signup`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+}
+
+const validBody = {
+  fullName: "Signup Trial Test",
+  email: "trial-test@example.invalid",
+  password: "TestPassword123!",
+  confirmPassword: "TestPassword123!",
+};
+
+async function main() {
+  const passed: string[] = [];
+
+  {
+    const mock = makePool();
+    const response = await requestSignup(mock.pool, validBody);
+    const payload = await response.json() as {
+      success: boolean;
+      user?: { id: number; role: string };
+    };
+
+    assert.equal(response.status, 201);
+    assert.equal(payload.success, true);
+    assert.equal(payload.user?.id, 501);
+    assert.equal(payload.user?.role, "VIEWER");
+
+    const trialCall = mock.calls.find(
+      (call) => call.sql.includes("INSERT INTO organization_trials"),
+    );
+    assert.ok(trialCall, "Signup must insert a trial record");
+    assert.match(trialCall.sql, /NOW\(\) \+ INTERVAL '14 days'/);
+    assert.match(trialCall.sql, /document_limit/);
+    assert.equal(trialCall.params[0], 601);
+    assert.match(trialCall.sql, /VALUES\s*\(\s*\$1,\s*NOW\(\),\s*NOW\(\)\s*\+\s*INTERVAL '14 days',\s*10\s*\)/);
+
+    const membershipCall = mock.calls.find(
+      (call) => call.sql.includes("INSERT INTO organization_memberships"),
+    );
+    assert.ok(membershipCall, "Signup must insert an organization membership");
+    assert.match(membershipCall.sql, /'OWNER'/);
+    assert.equal(membershipCall.params[0], 601);
+    assert.equal(membershipCall.params[1], 501);
+
+    const workspaceCall = mock.calls.find(
+      (call) => call.sql.includes("INSERT INTO workspaces"),
+    );
+    assert.ok(workspaceCall, "Signup must create the default workspace");
+    assert.match(workspaceCall.sql, /'Default Workspace'/);
+    assert.match(workspaceCall.sql, /'default'/);
+
+    assert.ok(
+      mock.calls.some((call) => call.sql === "COMMIT"),
+      "Successful signup must commit",
+    );
+    assert.ok(
+      !mock.calls.some((call) => call.sql === "ROLLBACK"),
+      "Successful signup must not roll back",
+    );
+    assert.ok(response.headers.get("set-cookie")?.includes("session="));
+    assert.equal(mock.released(), true);
+
+    passed.push("Signup creates trial, OWNER membership, workspace and session");
+  }
+
+  {
+    const mock = makePool({ failTrialInsert: true });
+    const response = await requestSignup(mock.pool, validBody);
+    const payload = await response.json() as { success: boolean };
+
+    assert.equal(response.status, 500);
+    assert.equal(payload.success, false);
+    assert.ok(mock.calls.some((call) => call.sql === "BEGIN"));
+    assert.ok(mock.calls.some((call) => call.sql === "ROLLBACK"));
+    assert.ok(
+      !mock.calls.some((call) => call.sql === "COMMIT"),
+      "Failed trial insert must not commit",
+    );
+    assert.equal(mock.released(), true);
+
+    passed.push("Trial insertion failure rolls back and releases client");
+  }
+
+  {
+    const mock = makePool();
+    const response = await requestSignup(mock.pool, {
+      ...validBody,
+      password: "short",
+      confirmPassword: "short",
+    });
+
+    assert.equal(response.status, 400);
+    assert.equal(mock.calls.length, 0);
+    assert.equal(mock.released(), false);
+
+    passed.push("Invalid password rejected before database access");
+  }
+
+  {
+    const mock = makePool({ existingEmail: true });
+    const response = await requestSignup(mock.pool, validBody);
+
+    assert.equal(response.status, 409);
+    assert.ok(
+      !mock.calls.some((call) => call.sql === "BEGIN"),
+      "Existing email must not start a transaction",
+    );
+    assert.equal(mock.released(), false);
+
+    passed.push("Existing email rejected before transaction");
+  }
+
+  console.log("\n=== M28D SIGNUP TRIAL TEST ===");
+  for (const item of passed) {
+    console.log(`PASS: ${item}`);
+  }
+  console.log(`\n${passed.length} checks passed.`);
+}
+
+main().catch((error: unknown) => {
+  console.error("FAIL: M28D signup trial test", error);
+  process.exitCode = 1;
+});
+

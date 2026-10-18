@@ -22,6 +22,11 @@ export function createApiInfrastructure() {
     "documents"
   );
 
+  const brandingRoot = path.join(
+    projectRoot,
+    "storage",
+    "branding"
+  );
   const temporaryRoot = path.join(
     projectRoot,
     "storage",
@@ -38,6 +43,8 @@ export function createApiInfrastructure() {
     { recursive: true }
   );
 
+  fs.mkdirSync(brandingRoot, { recursive: true });
+
   const localFileStorage =
     new LocalFileStorage(
       storageRoot
@@ -50,10 +57,18 @@ export function createApiInfrastructure() {
     },
   });
 
+  const brandingUpload = multer({
+    dest: temporaryRoot,
+    limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+  });
+
   return {
     pool,
+    brandingRoot,
+    brandingUpload,
     localFileStorage,
     upload,
     temporaryRoot,
   };
 }
+

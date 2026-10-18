@@ -149,24 +149,24 @@ export function Sidebar({
                   true
                 )
               }
-              className="mb-4 w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2"
+              className="app-sidebar-upload mb-4 w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2"
             >
               + Upload Document
             </button>
             )}
 
-            <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4">
+            <div className="app-sidebar-account-card mb-4 rounded-xl border p-4">
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-slate-800">
+                <p className="app-sidebar-account-name truncate text-sm font-semibold">
                   {authUser?.fullName ||
                     authUser?.email}
                 </p>
 
-                <p className="mt-1 truncate text-xs text-slate-500">
+                <p className="app-sidebar-account-email mt-1 truncate text-xs">
                   {authUser?.email}
                 </p>
 
-                <p className="mt-2 inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                <p className="app-sidebar-account-role mt-2 inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider">
                   {authUser?.role}
                 </p>
               </div>
@@ -177,7 +177,7 @@ export function Sidebar({
                   void logout();
                 }}
                 disabled={loggingOut}
-                className="mt-3 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                className="app-sidebar-account-signout mt-3 w-full rounded-lg border px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loggingOut
                   ? "Signing out..."
@@ -204,5 +204,7 @@ export function Sidebar({
         </aside>
   );
 }
+
+
 
 
