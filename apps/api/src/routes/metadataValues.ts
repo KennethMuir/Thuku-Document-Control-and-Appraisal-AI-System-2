@@ -1,6 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import type { Pool } from "pg";
 
+import { createAuditLog } from "../services/audit.js";
+
 import {
   requireAuthentication,
   requireOrganizationContext,
@@ -805,6 +807,27 @@ export function createMetadataValuesRouter(
             ]
           );
 
+          await createAuditLog(
+            client,
+            organizationId,
+            (req as AuthenticatedRequest).authUser?.id ?? null,
+            null,
+            metadataRecordId,
+            "METADATA_VALUE_CREATED",
+            JSON.stringify({
+              metadataValueId: result.rows[0].id,
+              fieldRegistryId,
+              fieldKey: metadataAndField.field_key,
+              source,
+              verificationStatus,
+              changedProperties: [
+                "value",
+                "source",
+                "confidence",
+                "verification_status",
+              ],
+            })
+          );
           await client.query("COMMIT");
           transactionStarted = false;
 
@@ -1035,8 +1058,14 @@ export function createMetadataValuesRouter(
           }
         }
 
-        const result =
-          await pool.query(
+        const client = await pool.connect();
+        let transactionStarted = false;
+
+        try {
+          await client.query("BEGIN");
+          transactionStarted = true;
+
+          const result = await client.query(
             `
               UPDATE metadata_values
               SET
@@ -1088,11 +1117,61 @@ export function createMetadataValuesRouter(
             ]
           );
 
-        res.json({
-          success: true,
-          metadata_value:
-            result.rows[0],
-        });
+          if (result.rows.length === 0) {
+            await client.query("ROLLBACK");
+            transactionStarted = false;
+            res.status(404).json({
+              success: false,
+              error: "Metadata value not found.",
+            });
+            return;
+          }
+
+          await createAuditLog(
+            client,
+            organizationId,
+            (req as AuthenticatedRequest).authUser?.id ?? null,
+            null,
+            current.metadata_record_id,
+            "METADATA_VALUE_UPDATED",
+            JSON.stringify({
+              metadataValueId: result.rows[0].id,
+              fieldRegistryId: current.field_registry_id,
+              fieldKey: current.field_key,
+              changedProperties: [
+                ...(value !== undefined ? ["value"] : []),
+                ...(source !== undefined ? ["source"] : []),
+                ...(confidence !== undefined ? ["confidence"] : []),
+                ...(verificationStatus !== undefined
+                  ? ["verification_status"]
+                  : []),
+              ],
+            })
+          );
+
+          await client.query("COMMIT");
+          transactionStarted = false;
+
+          res.json({
+            success: true,
+            metadata_value: result.rows[0],
+          });
+        } catch (error) {
+          if (transactionStarted) {
+            try {
+              await client.query("ROLLBACK");
+            } catch (rollbackError) {
+              console.error(
+                "Metadata value update rollback failed:",
+                rollbackError
+              );
+            }
+          }
+
+          throw error;
+        } finally {
+          client.release();
+        }
       } catch (error: any) {
         if (
           error?.code === "23505" &&
@@ -1159,11 +1238,19 @@ export function createMetadataValuesRouter(
       }
 
       try {
-        const existing =
-          await pool.query(
+        const client = await pool.connect();
+        let transactionStarted = false;
+
+        try {
+          await client.query("BEGIN");
+          transactionStarted = true;
+
+          const existing = await client.query(
             `
               SELECT
                 mv.id,
+                mv.metadata_record_id,
+                mv.field_registry_id,
                 fr.field_key
               FROM metadata_values mv
               INNER JOIN field_registry fr
@@ -1173,6 +1260,7 @@ export function createMetadataValuesRouter(
                 AND mv.organization_id = $2
                 AND fr.is_active = TRUE
               LIMIT 1
+              FOR UPDATE OF mv
             `,
             [
               valueId,
@@ -1180,35 +1268,38 @@ export function createMetadataValuesRouter(
             ]
           );
 
-        if (existing.rows.length === 0) {
-          res.status(404).json({
-            success: false,
-            error:
-              "Metadata value not found.",
-          });
-          return;
-        }
+          if (existing.rows.length === 0) {
+            await client.query("ROLLBACK");
+            transactionStarted = false;
 
-        if (
-          existing.rows[0].field_key ===
-          "reference_code"
-        ) {
-          res.status(400).json({
-            success: false,
-            error:
-              "Reference Code is system-generated from the selected Department and cannot be deleted.",
-          });
-          return;
-        }
+            res.status(404).json({
+              success: false,
+              error:
+                "Metadata value not found.",
+            });
+            return;
+          }
 
-        const result =
-          await pool.query(
+          const current = existing.rows[0];
+
+          if (current.field_key === "reference_code") {
+            await client.query("ROLLBACK");
+            transactionStarted = false;
+
+            res.status(400).json({
+              success: false,
+              error:
+                "Reference Code is system-generated from the selected Department and cannot be deleted.",
+            });
+            return;
+          }
+
+          const result = await client.query(
             `
               DELETE FROM metadata_values
               WHERE
                 id = $1
                 AND organization_id = $2
-
               RETURNING
                 id,
                 metadata_record_id,
@@ -1220,20 +1311,70 @@ export function createMetadataValuesRouter(
             ]
           );
 
-        if (result.rows.length === 0) {
-          res.status(404).json({
+          if (result.rows.length === 0) {
+            await client.query("ROLLBACK");
+            transactionStarted = false;
+
+            res.status(404).json({
+              success: false,
+              error:
+                "Metadata value not found.",
+            });
+            return;
+          }
+
+          await createAuditLog(
+            client,
+            organizationId,
+            (req as AuthenticatedRequest).authUser?.id ?? null,
+            null,
+            current.metadata_record_id,
+            "METADATA_VALUE_DELETED",
+            JSON.stringify({
+              metadataValueId: current.id,
+              fieldRegistryId: current.field_registry_id,
+              fieldKey: current.field_key,
+              changedProperties: [
+                "value",
+                "source",
+                "confidence",
+                "verification_status",
+              ],
+            })
+          );
+
+          await client.query("COMMIT");
+          transactionStarted = false;
+
+          res.json({
+            success: true,
+            deleted: result.rows[0],
+          });
+        } catch (error) {
+          if (transactionStarted) {
+            try {
+              await client.query("ROLLBACK");
+            } catch (rollbackError) {
+              console.error(
+                "Metadata value deletion rollback failed:",
+                rollbackError
+              );
+            }
+          }
+
+          console.error(
+            "Metadata value deletion failed:",
+            error
+          );
+
+          res.status(500).json({
             success: false,
             error:
-              "Metadata value not found.",
+              "Unable to delete metadata value.",
           });
-          return;
+        } finally {
+          client.release();
         }
-
-        res.json({
-          success: true,
-          deleted:
-            result.rows[0],
-        });
       } catch (error) {
         console.error(
           "Metadata value deletion failed:",
@@ -1248,7 +1389,6 @@ export function createMetadataValuesRouter(
       }
     }
   );
-
   return router;
 }
 
