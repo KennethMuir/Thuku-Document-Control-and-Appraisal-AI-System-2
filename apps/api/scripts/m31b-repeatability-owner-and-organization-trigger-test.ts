@@ -74,8 +74,8 @@ async function main(): Promise<void> {
     );
     assert.equal(
       new URL(API_URL).port,
-      "4010",
-      "Refusing to call an API port other than 4010",
+      "4011",
+      "Refusing to call an API port other than 4011",
     );
     pass("API and writable disposable database targets verified");
 
@@ -328,13 +328,9 @@ async function main(): Promise<void> {
       if (organizationA || organizationB || metadataRecordId || fieldId) {
         await pool.query(
           `DELETE FROM metadata_values
-           WHERE ($1::bigint IS NOT NULL AND organization_id = $1)
-              OR ($2::bigint IS NOT NULL AND organization_id = $2)
-              OR ($3::bigint IS NOT NULL AND metadata_record_id = $3)
-              OR ($4::bigint IS NOT NULL AND field_registry_id = $4)`,
+           WHERE ($1::bigint IS NOT NULL AND metadata_record_id = $1)
+              OR ($2::bigint IS NOT NULL AND field_registry_id = $2)`,
           [
-            organizationA ?? null,
-            organizationB ?? null,
             metadataRecordId ?? null,
             fieldId ?? null,
           ],

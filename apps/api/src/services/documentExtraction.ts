@@ -893,16 +893,30 @@ export async function extractDocx(
   ).trim();
 }
 
+type ExtractionDependencies = {
+  extractPdf: (filePath: string) => Promise<string>;
+  extractDocx: (filePath: string) => Promise<string>;
+  ocrPdf: (filePath: string) => Promise<{
+    text: string;
+    pageCount: number;
+  }>;
+};
+
 export async function extractDocumentContent(
   filePath: string,
   extension: string,
-  filename: string
+  filename: string,
+  dependencies: ExtractionDependencies = {
+    extractPdf,
+    extractDocx,
+    ocrPdf,
+  }
 ): Promise<ExtractedDocument> {
   let text = "";
 
   if (extension === ".pdf") {
     text =
-      await extractPdf(
+      await dependencies.extractPdf(
         filePath
       );
 
@@ -914,7 +928,7 @@ export async function extractDocumentContent(
     ) {
       try {
         const ocrResult =
-          await ocrPdf(
+          await dependencies.ocrPdf(
             filePath
           );
 
@@ -937,7 +951,7 @@ export async function extractDocumentContent(
     extension === ".docx"
   ) {
     text =
-      await extractDocx(
+      await dependencies.extractDocx(
         filePath
       );
   }

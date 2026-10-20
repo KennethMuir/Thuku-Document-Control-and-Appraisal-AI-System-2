@@ -68,6 +68,10 @@ body {
 /* Main navigation and top header use their dedicated settings. */
 .app-theme-scope aside {
   background-color: var(--app-sidebar-background) !important;
+  background-image: var(--app-sidebar-image, none) !important;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
   color: var(--app-sidebar-text);
   border-color: var(--app-border);
 }
@@ -77,7 +81,7 @@ body {
 .app-theme-scope aside .bg-white,
 .app-theme-scope aside .bg-slate-50,
 .app-theme-scope aside .bg-slate-100 {
-  background-color: var(--app-sidebar-background) !important;
+  background-color: color-mix(in srgb, var(--app-sidebar-background) 84%, transparent) !important;
 }
 
 .app-theme-scope aside > div,

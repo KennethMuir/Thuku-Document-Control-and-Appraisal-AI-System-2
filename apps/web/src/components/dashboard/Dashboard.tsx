@@ -157,10 +157,42 @@ export function Dashboard({
   getStatValue,
 }: DashboardProps) {
   return (
-    <div className="min-w-0 rounded-2xl" style={{ backgroundColor: dashboardSettings.theme === "DARK" ? "#0F172A" : dashboardSettings.backgroundColor, color: dashboardSettings.theme === "DARK" ? "#F8FAFC" : dashboardSettings.textColor }}>
+    <div
+      className="min-w-0 rounded-2xl"
+      style={{
+        backgroundColor: dashboardSettings.theme === "DARK" ? "#0F172A" : dashboardSettings.backgroundColor,
+        color: dashboardSettings.theme === "DARK" ? "#F8FAFC" : dashboardSettings.textColor,
+        ...(dashboardSettings.brandingImages?.DASHBOARD
+          ? {
+              backgroundImage: `linear-gradient(rgba(255,255,255,${Math.min(0.75, Math.max(0, dashboardSettings.dashboardBackgroundFade ?? 0))}), rgba(255,255,255,${Math.min(0.75, Math.max(0, dashboardSettings.dashboardBackgroundFade ?? 0))})), var(--app-dashboard-image)`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              backgroundRepeat: "no-repeat",
+            }
+          : {}),
+      }}
+    >
 
                 {dashboardSettings.showWelcomePanel && (
-<div className={`mb-8 rounded-2xl p-7 shadow-sm ${dashboardSettings.dashboardLayout === "COMPACT" ? "md:p-5" : ""}`} style={{ background: dashboardSettings.headerStyle === "GRADIENT" ? `linear-gradient(135deg, ${dashboardSettings.primaryColor}, ${dashboardSettings.accentColor})` : dashboardSettings.primaryColor, color: "#FFFFFF" }}>
+<div
+  className={`mb-8 rounded-2xl p-7 shadow-sm ${dashboardSettings.dashboardLayout === "COMPACT" ? "md:p-5" : ""}`}
+  style={{
+    background: dashboardSettings.brandingImages?.INTRODUCTION
+      ? undefined
+      : dashboardSettings.headerStyle === "GRADIENT"
+        ? `linear-gradient(135deg, ${dashboardSettings.primaryColor}, ${dashboardSettings.accentColor})`
+        : dashboardSettings.primaryColor,
+    ...(dashboardSettings.brandingImages?.INTRODUCTION
+      ? {
+          backgroundImage: "linear-gradient(rgba(0,0,0,0.12), rgba(0,0,0,0.12)), var(--app-introduction-image)",
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          backgroundRepeat: "no-repeat",
+        }
+      : {}),
+    color: "#FFFFFF",
+  }}
+>
                   <div className="max-w-3xl">
                     <p className="text-sm font-semibold text-slate-300">
                       DOCUMENT APPRAISAL AI

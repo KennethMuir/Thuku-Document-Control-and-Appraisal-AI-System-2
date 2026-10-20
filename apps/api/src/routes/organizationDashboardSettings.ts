@@ -144,6 +144,8 @@ function validateSettings(
     "showWelcomePanel",
     "visibleStatCards",
     "dashboardBackgroundFade",
+    // Image references are managed only by the dedicated image endpoints.
+    "brandingImages",
   ]);
 
   for (const key of Object.keys(patch)) {
@@ -295,7 +297,14 @@ export function createOrganizationDashboardSettingsRouter(pool: Pool, brandingRo
            VALUES ($1, $2::jsonb, $3, NOW(), NOW())
            ON CONFLICT (organization_id)
            DO UPDATE SET
-             settings = EXCLUDED.settings,
+             settings = EXCLUDED.settings
+               || jsonb_build_object(
+                 'brandingImages',
+                 COALESCE(
+                   organization_dashboard_settings.settings->'brandingImages',
+                   '{}'::jsonb
+                 )
+               ),
              updated_by = EXCLUDED.updated_by,
              updated_at = NOW()
            RETURNING settings, updated_at`,
@@ -496,7 +505,7 @@ export function createOrganizationDashboardSettingsRouter(pool: Pool, brandingRo
              COALESCE(organization_dashboard_settings.settings, '{}'::jsonb),
              '{brandingImages}',
              COALESCE(organization_dashboard_settings.settings->'brandingImages', '{}'::jsonb)
-               || EXCLUDED.settings->'brandingImages',
+               || (EXCLUDED.settings->'brandingImages'),
              true
            ),
            updated_at = NOW()`,
@@ -577,6 +586,3 @@ export function createOrganizationDashboardSettingsRouter(pool: Pool, brandingRo
   );
   return router;
 }
-
-
-

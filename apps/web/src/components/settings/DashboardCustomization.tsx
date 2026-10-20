@@ -127,31 +127,60 @@ export function DashboardCustomization() {
 
   useEffect(() => {
     let active = true;
+    let requestVersion = 0;
 
-    getOrganizationDashboardSettings()
-      .then((result) => {
-        if (active && result.settings) {
+    const reloadSettings = async () => {
+      const version = ++requestVersion;
+
+      try {
+        const result = await getOrganizationDashboardSettings();
+
+        if (active && version === requestVersion && result.settings) {
           setSettings({
             ...DEFAULT_ORGANIZATION_DASHBOARD_SETTINGS,
             ...result.settings,
           });
         }
-      })
-      .catch((cause: unknown) => {
-        if (active) {
+      } catch (cause: unknown) {
+        if (active && version === requestVersion) {
           setError(
             cause instanceof Error
               ? cause.message
               : "Unable to load dashboard settings.",
           );
         }
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+      } finally {
+        if (active && version === requestVersion) {
+          setLoading(false);
+        }
+      }
+    };
+
+    const handleSettingsUpdated = () => {
+      void reloadSettings();
+    };
+
+    void reloadSettings();
+
+    window.addEventListener(
+      "organization-dashboard-settings-updated",
+      handleSettingsUpdated,
+    );
+    window.addEventListener(
+      "organization-selection-changed",
+      handleSettingsUpdated,
+    );
 
     return () => {
       active = false;
+      window.removeEventListener(
+        "organization-dashboard-settings-updated",
+        handleSettingsUpdated,
+      );
+      window.removeEventListener(
+        "organization-selection-changed",
+        handleSettingsUpdated,
+      );
     };
   }, []);
 
@@ -579,4 +608,3 @@ export function DashboardCustomization() {
     </div>
   );
 }
-

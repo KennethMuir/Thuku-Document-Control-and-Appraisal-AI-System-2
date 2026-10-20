@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
+import { apiFetch } from "@/lib/api/client";
 import { getOrganizationDashboardSettings } from "@/lib/api/organizationDashboardSettings";
 import { getSelectedOrganizationId } from "@/lib/organization/selection";
 import {
@@ -46,9 +47,22 @@ function isDefault(value: string, defaultValue: string): boolean {
   return normalizeHex(value, defaultValue) === defaultValue;
 }
 
+type BrandingImageUrls = {
+  SIDEBAR: string;
+  DASHBOARD: string;
+  INTRODUCTION: string;
+};
+
+const EMPTY_BRANDING_IMAGE_URLS: BrandingImageUrls = {
+  SIDEBAR: "",
+  DASHBOARD: "",
+  INTRODUCTION: "",
+};
+
 function makeThemeStyle(
   settings: OrganizationDashboardSettings,
   dark: boolean,
+  imageUrls: BrandingImageUrls,
 ): CSSProperties {
   const defaults = DEFAULT_ORGANIZATION_DASHBOARD_SETTINGS;
 
@@ -111,7 +125,11 @@ function makeThemeStyle(
     "--app-focus-ring": normalizeHex(settings.accentColor, defaults.accentColor),
     "--app-button-background": normalizeHex(settings.buttonBackgroundColor, defaults.buttonBackgroundColor),
     "--app-button-text": normalizeHex(settings.buttonTextColor, defaults.buttonTextColor),
-    "--app-button-hover": normalizeHex(settings.buttonHoverColor, defaults.buttonHoverColor),  } as CSSProperties;
+    "--app-button-hover": normalizeHex(settings.buttonHoverColor, defaults.buttonHoverColor),
+    "--app-sidebar-image": imageUrls.SIDEBAR ? `url("${imageUrls.SIDEBAR}")` : "none",
+    "--app-dashboard-image": imageUrls.DASHBOARD ? `url("${imageUrls.DASHBOARD}")` : "none",
+    "--app-introduction-image": imageUrls.INTRODUCTION ? `url("${imageUrls.INTRODUCTION}")` : "none",
+  } as CSSProperties;
 }
 export function OrganizationThemeProvider({
   children,
@@ -122,6 +140,27 @@ export function OrganizationThemeProvider({
     DEFAULT_ORGANIZATION_DASHBOARD_SETTINGS,
   );
   const [systemDark, setSystemDark] = useState(false);
+  const [brandingImageUrls, setBrandingImageUrls] = useState<BrandingImageUrls>(
+    EMPTY_BRANDING_IMAGE_URLS,
+  );
+  const previousImageUrlsRef = useRef<BrandingImageUrls>(
+    EMPTY_BRANDING_IMAGE_URLS,
+  );
+
+  useEffect(() => {
+    const previousUrls = previousImageUrlsRef.current;
+    const currentUrls = new Set(
+      Object.values(brandingImageUrls).filter((url) => url.length > 0),
+    );
+
+    for (const url of Object.values(previousUrls)) {
+      if (url && !currentUrls.has(url)) {
+        URL.revokeObjectURL(url);
+      }
+    }
+
+    previousImageUrlsRef.current = brandingImageUrls;
+  }, [brandingImageUrls]);
 
   useEffect(() => {
     let cancelled = false;
@@ -148,7 +187,13 @@ export function OrganizationThemeProvider({
           });
         }
       } catch {
-        if (!cancelled && currentRequest === requestNumber) {
+        // Keep the current settings if a background refresh fails.
+        // Organization changes already reset settings before loading.
+        if (
+          !cancelled &&
+          currentRequest === requestNumber &&
+          resetFirst
+        ) {
           setSettings(DEFAULT_ORGANIZATION_DASHBOARD_SETTINGS);
         }
       }
@@ -182,11 +227,114 @@ export function OrganizationThemeProvider({
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    let requestNumber = 0;
+
+    const slots: Array<keyof BrandingImageUrls> = [
+      "SIDEBAR",
+      "DASHBOARD",
+      "INTRODUCTION",
+    ];
+
+    const loadImages = async (clearFirst = false) => {
+      const currentRequest = ++requestNumber;
+
+      if (clearFirst) {
+        setBrandingImageUrls(EMPTY_BRANDING_IMAGE_URLS);
+      }
+
+      const results = await Promise.all(
+        slots.map(async (slot) => {
+          try {
+            const response = await apiFetch(
+              `/api/organization-dashboard-settings/images/${slot}`,
+              { method: "GET" },
+            );
+
+            if (!response.ok) {
+              return {
+                slot,
+                url: "",
+                disposition: response.status === 404 ? "clear" as const : "keep" as const,
+              };
+            }
+
+            const blob = await response.blob();
+
+            if (!blob.type.startsWith("image/") || blob.size === 0) {
+              return { slot, url: "", disposition: "keep" as const };
+            }
+
+            return {
+              slot,
+              url: URL.createObjectURL(blob),
+              disposition: "replace" as const,
+            };
+          } catch {
+            return { slot, url: "", disposition: "keep" as const };
+          }
+        }),
+      );
+
+      const loadedUrls = results
+        .map((result) => result.url)
+        .filter((url) => url.length > 0);
+
+      if (cancelled || currentRequest !== requestNumber) {
+        loadedUrls.forEach((url) => URL.revokeObjectURL(url));
+        return;
+      }
+
+      setBrandingImageUrls((previous) => {
+        const next: BrandingImageUrls = { ...previous };
+
+        for (const result of results) {
+          if (result.url) {
+            next[result.slot] = result.url;
+          } else if (result.disposition === "clear" || clearFirst) {
+            next[result.slot] = "";
+          }
+          // Transient failures retain the existing image during normal refreshes.
+        }
+
+        return next;
+      });
+    };
+
+    const refreshImages = () => {
+      void loadImages(false);
+    };
+
+    const refreshOrganizationImages = () => {
+      void loadImages(true);
+    };
+
+    void loadImages(true);
+
+    window.addEventListener("organization-dashboard-settings-updated", refreshImages);
+    window.addEventListener("organization-selection-changed", refreshOrganizationImages);
+    window.addEventListener("storage", refreshOrganizationImages);
+
+    return () => {
+      cancelled = true;
+      requestNumber += 1;
+
+      window.removeEventListener("organization-dashboard-settings-updated", refreshImages);
+      window.removeEventListener("organization-selection-changed", refreshOrganizationImages);
+      window.removeEventListener("storage", refreshOrganizationImages);
+
+      Object.values(previousImageUrlsRef.current).forEach((url) => {
+        if (url) URL.revokeObjectURL(url);
+      });
+    };
+  }, []);
+
   const selectedOrganizationId = getSelectedOrganizationId();
   const dark = settings.theme === "DARK" ||
     (settings.theme === "SYSTEM" && systemDark);
 
-  const style = makeThemeStyle(settings, dark);
+  const style = makeThemeStyle(settings, dark, brandingImageUrls);
 
   return (
     <div
@@ -199,5 +347,3 @@ export function OrganizationThemeProvider({
     </div>
   );
 }
-
-

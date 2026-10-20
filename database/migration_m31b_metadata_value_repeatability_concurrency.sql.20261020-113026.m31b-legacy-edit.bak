@@ -1,0 +1,69 @@
+BEGIN;
+
+CREATE OR REPLACE FUNCTION validate_metadata_value_repeatability()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    field_is_repeatable BOOLEAN;
+    existing_value_id BIGINT;
+BEGIN
+    -- Lock the field definition first, matching the API lock order.
+    SELECT fr.repeatable
+    INTO field_is_repeatable
+    FROM field_registry fr
+    WHERE fr.id = NEW.field_registry_id
+      AND fr.is_active = TRUE
+    FOR SHARE;
+
+    IF NOT FOUND OR field_is_repeatable IS NULL THEN
+        RAISE EXCEPTION
+            'Field registry definition % does not exist or is inactive',
+            NEW.field_registry_id;
+    END IF;
+
+    IF field_is_repeatable = FALSE THEN
+        -- Serialize inserts for the same metadata-record/field pair.
+        PERFORM pg_advisory_xact_lock(
+            hashtextextended(
+                NEW.metadata_record_id::text || ':' ||
+                NEW.field_registry_id::text,
+                0
+            )
+        );
+
+        SELECT mv.id
+        INTO existing_value_id
+        FROM metadata_values mv
+        WHERE mv.metadata_record_id = NEW.metadata_record_id
+          AND mv.field_registry_id = NEW.field_registry_id
+          AND mv.organization_id = NEW.organization_id
+          AND mv.id <> COALESCE(NEW.id, 0)
+        LIMIT 1;
+
+        IF existing_value_id IS NOT NULL THEN
+            RAISE EXCEPTION USING
+                ERRCODE = '23505',
+                CONSTRAINT = 'metadata_values_nonrepeatable_guard',
+                MESSAGE = format(
+                    'Field %s is not repeatable and already has a value for metadata record %s',
+                    NEW.field_registry_id,
+                    NEW.metadata_record_id
+                );
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS metadata_values_validate_repeatability
+    ON metadata_values;
+
+CREATE TRIGGER metadata_values_validate_repeatability
+BEFORE INSERT OR UPDATE
+ON metadata_values
+FOR EACH ROW
+EXECUTE FUNCTION validate_metadata_value_repeatability();
+
+COMMIT;
