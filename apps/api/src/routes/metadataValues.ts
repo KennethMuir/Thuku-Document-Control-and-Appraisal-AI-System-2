@@ -679,16 +679,66 @@ export function createMetadataValuesRouter(
           return;
         }
 
-        if (
-          !metadataAndField.repeatable
-        ) {
-          const existing =
-            await pool.query(
+        const client = await pool.connect();
+        let transactionStarted = false;
+
+        try {
+          await client.query("BEGIN");
+          transactionStarted = true;
+
+          const currentField = await client.query(
+            `
+              SELECT fr.repeatable
+              FROM field_registry fr
+              JOIN metadata_records mr
+                ON mr.id = $1
+               AND mr.organization_id = $3
+              WHERE fr.id = $2
+                AND fr.is_active = TRUE
+                AND (
+                  fr.organization_id = $3
+                  OR fr.organization_id IS NULL
+                )
+              FOR SHARE OF fr
+            `,
+            [
+              metadataRecordId,
+              fieldRegistryId,
+              organizationId,
+            ]
+          );
+
+          if (currentField.rows.length === 0) {
+            await client.query("ROLLBACK");
+            transactionStarted = false;
+            res.status(404).json({
+              success: false,
+              error: "Metadata record or field definition not found.",
+            });
+            return;
+          }
+
+          const repeatable =
+            currentField.rows[0].repeatable === true;
+
+          if (!repeatable) {
+            await client.query(
+              `
+                SELECT pg_advisory_xact_lock(
+                  hashtextextended(
+                    $1::text || ':' || $2::text,
+                    0
+                  )
+                )
+              `,
+              [metadataRecordId, fieldRegistryId]
+            );
+
+            const existing = await client.query(
               `
                 SELECT id
                 FROM metadata_values
-                WHERE
-                  metadata_record_id = $1
+                WHERE metadata_record_id = $1
                   AND field_registry_id = $2
                   AND organization_id = $3
                 LIMIT 1
@@ -700,18 +750,19 @@ export function createMetadataValuesRouter(
               ]
             );
 
-          if (existing.rows.length > 0) {
-            res.status(409).json({
-              success: false,
-              error:
-                "This field is not repeatable and already has a value for this metadata record.",
-            });
-            return;
+            if (existing.rows.length > 0) {
+              await client.query("ROLLBACK");
+              transactionStarted = false;
+              res.status(409).json({
+                success: false,
+                error:
+                  "This field is not repeatable and already has a value for this metadata record.",
+              });
+              return;
+            }
           }
-        }
 
-        const result =
-          await pool.query(
+          const result = await client.query(
             `
               INSERT INTO metadata_values (
                 metadata_record_id,
@@ -754,12 +805,41 @@ export function createMetadataValuesRouter(
             ]
           );
 
-        res.status(201).json({
-          success: true,
-          metadata_value:
-            result.rows[0],
-        });
-      } catch (error) {
+          await client.query("COMMIT");
+          transactionStarted = false;
+
+          res.status(201).json({
+            success: true,
+            metadata_value: result.rows[0],
+          });
+        } catch (error) {
+          if (transactionStarted) {
+            try {
+              await client.query("ROLLBACK");
+            } catch (rollbackError) {
+              console.error(
+                "Metadata value transaction rollback failed:",
+                rollbackError
+              );
+            }
+          }
+          throw error;
+        } finally {
+          client.release();
+        }
+      } catch (error: any) {
+        if (
+          error?.code === "23505" &&
+          error?.constraint === "metadata_values_nonrepeatable_guard"
+        ) {
+          res.status(409).json({
+            success: false,
+            error:
+              "This field is not repeatable and already has a value for this metadata record.",
+          });
+          return;
+        }
+
         console.error(
           "Metadata value creation failed:",
           error
@@ -892,6 +972,7 @@ export function createMetadataValuesRouter(
                 mv.source,
                 mv.confidence,
                 mv.verification_status,
+                fr.field_key,
                 fr.data_type,
                 fr.repeatable,
                 fr.is_active
@@ -1012,7 +1093,19 @@ export function createMetadataValuesRouter(
           metadata_value:
             result.rows[0],
         });
-      } catch (error) {
+      } catch (error: any) {
+        if (
+          error?.code === "23505" &&
+          error?.constraint === "metadata_values_nonrepeatable_guard"
+        ) {
+          res.status(409).json({
+            success: false,
+            error:
+              "This field is not repeatable and already has a value for this metadata record.",
+          });
+          return;
+        }
+
         console.error(
           "Metadata value update failed:",
           error

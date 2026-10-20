@@ -559,153 +559,233 @@ export function createFieldRegistryRouter(pool: Pool) {
         return;
       }
 
-      try {
-        const fieldCheck = await pool.query(
-          `
-            SELECT
-              id,
-              organization_id,
-              is_active
-            FROM field_registry
-            WHERE field_key = $1
-            LIMIT 1
-          `,
-          [fieldKey]
-        );
-
-        if (fieldCheck.rows.length === 0) {
-          res.status(404).json({
-            success: false,
-            error: "Field definition not found.",
-          });
-          return;
-        }
-
-        const dbField = fieldCheck.rows[0];
-
-        if (dbField.organization_id === null) {
-          res.status(403).json({
-            success: false,
-            error:
-              "System fields cannot be modified via organization-defined operations.",
-          });
-          return;
-        }
-
-        if (Number(dbField.organization_id) !== organizationId) {
-          res.status(403).json({
-            success: false,
-            error:
-              "Field definition does not belong to your organization.",
-          });
-          return;
-        }
-
-        const setClauses: string[] = [];
-        const values: unknown[] = [];
-        let parameterIndex = 1;
-
-        const addValue = (
-          column: string,
-          value: unknown,
-          cast?: string
-        ) => {
-          if (value !== undefined) {
-            setClauses.push(
-              `${column} = $${parameterIndex}${
-                cast ? `::${cast}` : ""
-              }`
-            );
-            values.push(value);
-            parameterIndex++;
-          }
-        };
-
-        addValue("display_name", display_name);
-        addValue("description", description);
-        addValue("category", category);
-        addValue("data_type", data_type);
-        addValue("aliases", aliases, "jsonb");
-        addValue("repeatable", repeatable);
-        addValue("searchable", searchable);
-        addValue("filterable", filterable);
-        addValue("sortable", sortable);
-        addValue("ai_extractable", ai_extractable);
-        addValue("user_editable", user_editable);
-        addValue("sensitive", sensitive);
-        addValue("validation_rule", validation_rule, "jsonb");
-        addValue(
-          "controlled_vocabulary",
-          controlled_vocabulary,
-          "jsonb"
-        );
-        addValue("unit", unit);
-        addValue("default_value", default_value, "jsonb");
-
-        if (setClauses.length === 0) {
-          res.status(400).json({
-            success: false,
-            error: "No fields to update.",
-          });
-          return;
-        }
-
-        setClauses.push("updated_at = NOW()");
-
-        values.push(fieldKey);
-        const fieldKeyParameter = parameterIndex;
-        parameterIndex++;
-
-        values.push(organizationId);
-        const organizationParameter = parameterIndex;
-
-        const query = `
-          UPDATE field_registry
-          SET
-            ${setClauses.join(", ")}
-          WHERE
-            field_key = $${fieldKeyParameter}
-            AND organization_id = $${organizationParameter}
-          RETURNING
-            id,
-            field_key,
-            display_name,
-            description,
-            category,
-            data_type,
-            aliases,
-            repeatable,
-            searchable,
-            filterable,
-            sortable,
-            ai_extractable,
-            user_editable,
-            sensitive,
-            validation_rule,
-            controlled_vocabulary,
-            unit,
-            default_value,
-            is_active,
-            created_at,
-            updated_at,
-            organization_id
-        `;
-
-        const result = await pool.query(query, values);
-
-        if (result.rows.length === 0) {
-          res.status(404).json({
-            success: false,
-            error:
-              "Field definition not found or does not belong to your organization.",
-          });
-          return;
-        }
-
-        res.json({
-          success: true,
-          field_definition: result.rows[0],
+      if (
+        repeatable !== undefined &&
+        typeof repeatable !== "boolean"
+      ) {
+        res.status(400).json({
+          success: false,
+          error: "repeatable must be a Boolean.",
         });
+        return;
+      }
+      try {
+        const client = await pool.connect();
+        let transactionStarted = false;
+
+        try {
+          await client.query("BEGIN");
+          transactionStarted = true;
+
+          const fieldCheck = await client.query(
+            `
+              SELECT
+                id,
+                organization_id,
+                is_active
+              FROM field_registry
+              WHERE field_key = $1
+              ORDER BY
+                CASE
+                  WHEN organization_id = $2 THEN 0
+                  WHEN organization_id IS NULL THEN 1
+                  ELSE 2
+                END
+              LIMIT 1
+              FOR UPDATE
+            `,
+            [fieldKey, organizationId]
+          );
+
+          if (fieldCheck.rows.length === 0) {
+            await client.query("ROLLBACK");
+            transactionStarted = false;
+            res.status(404).json({
+              success: false,
+              error: "Field definition not found.",
+            });
+            return;
+          }
+
+          const dbField = fieldCheck.rows[0];
+
+          if (dbField.organization_id === null) {
+            await client.query("ROLLBACK");
+            transactionStarted = false;
+            res.status(403).json({
+              success: false,
+              error:
+                "System fields cannot be modified via organization-defined operations.",
+            });
+            return;
+          }
+
+          if (Number(dbField.organization_id) !== organizationId) {
+            await client.query("ROLLBACK");
+            transactionStarted = false;
+            res.status(403).json({
+              success: false,
+              error:
+                "Field definition does not belong to your organization.",
+            });
+            return;
+          }
+
+          if (repeatable === false) {
+            const duplicateCheck = await client.query(
+              `
+                SELECT metadata_record_id
+                FROM metadata_values
+                WHERE field_registry_id = $1
+                  AND organization_id = $2
+                GROUP BY metadata_record_id
+                HAVING COUNT(*) > 1
+                LIMIT 1
+              `,
+              [dbField.id, organizationId]
+            );
+
+            if (duplicateCheck.rows.length > 0) {
+              await client.query("ROLLBACK");
+              transactionStarted = false;
+              res.status(409).json({
+                success: false,
+                error:
+                  "Cannot disable repeatability while duplicate values exist for a metadata record. Resolve the duplicates first.",
+              });
+              return;
+            }
+          }
+
+          const setClauses: string[] = [];
+          const values: unknown[] = [];
+          let parameterIndex = 1;
+
+          const addValue = (
+            column: string,
+            value: unknown,
+            cast?: string
+          ) => {
+            if (value !== undefined) {
+              setClauses.push(
+                `${column} = $${parameterIndex}${
+                  cast ? `::${cast}` : ""
+                }`
+              );
+              values.push(value);
+              parameterIndex++;
+            }
+          };
+
+          addValue("display_name", display_name);
+          addValue("description", description);
+          addValue("category", category);
+          addValue("data_type", data_type);
+          addValue("aliases", aliases, "jsonb");
+          addValue("repeatable", repeatable);
+          addValue("searchable", searchable);
+          addValue("filterable", filterable);
+          addValue("sortable", sortable);
+          addValue("ai_extractable", ai_extractable);
+          addValue("user_editable", user_editable);
+          addValue("sensitive", sensitive);
+          addValue("validation_rule", validation_rule, "jsonb");
+          addValue(
+            "controlled_vocabulary",
+            controlled_vocabulary,
+            "jsonb"
+          );
+          addValue("unit", unit);
+          addValue("default_value", default_value, "jsonb");
+
+          if (setClauses.length === 0) {
+            await client.query("ROLLBACK");
+            transactionStarted = false;
+            res.status(400).json({
+              success: false,
+              error: "No fields to update.",
+            });
+            return;
+          }
+
+          setClauses.push("updated_at = NOW()");
+
+          values.push(fieldKey);
+          const fieldKeyParameter = parameterIndex;
+          parameterIndex++;
+
+          values.push(organizationId);
+          const organizationParameter = parameterIndex;
+
+          const query = `
+            UPDATE field_registry
+            SET
+              ${setClauses.join(", ")}
+            WHERE
+              field_key = $${fieldKeyParameter}
+              AND organization_id = $${organizationParameter}
+            RETURNING
+              id,
+              field_key,
+              display_name,
+              description,
+              category,
+              data_type,
+              aliases,
+              repeatable,
+              searchable,
+              filterable,
+              sortable,
+              ai_extractable,
+              user_editable,
+              sensitive,
+              validation_rule,
+              controlled_vocabulary,
+              unit,
+              default_value,
+              is_active,
+              created_at,
+              updated_at,
+              organization_id
+          `;
+
+          const result = await client.query(query, values);
+
+          if (result.rows.length === 0) {
+            await client.query("ROLLBACK");
+            transactionStarted = false;
+            res.status(404).json({
+              success: false,
+              error:
+                "Field definition not found or does not belong to your organization.",
+            });
+            return;
+          }
+
+          await client.query("COMMIT");
+          transactionStarted = false;
+
+          res.json({
+            success: true,
+            field_definition: result.rows[0],
+          });
+        } catch (error) {
+          if (transactionStarted) {
+            try {
+              await client.query("ROLLBACK");
+              transactionStarted = false;
+            } catch (rollbackError) {
+              console.error(
+                "Field update transaction rollback failed:",
+                rollbackError
+              );
+            }
+          }
+
+          throw error;
+        } finally {
+          client.release();
+        }
       } catch (error: any) {
         console.error("Field update failed:", error);
 
