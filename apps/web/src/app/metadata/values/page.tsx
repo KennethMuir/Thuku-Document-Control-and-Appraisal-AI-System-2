@@ -272,7 +272,7 @@ export default function MetadataValuesPage() {
 
         const response =
           await apiFetch(
-            `${API_URL}/api/metadata`,
+            "/api/metadata",
             {
               credentials: "include",
               cache: "no-store",
@@ -2081,4 +2081,5 @@ export default function MetadataValuesPage() {
     </main>
   );
 }
+
 

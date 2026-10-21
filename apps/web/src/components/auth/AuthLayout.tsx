@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 type AuthLayoutProps = {
+  variant?: "default" | "signup";
   eyebrow: string;
   title: string;
   description: string;
@@ -12,6 +13,7 @@ type AuthLayoutProps = {
 };
 
 export function AuthLayout({
+  variant = "default",
   eyebrow,
   title,
   description,
@@ -22,21 +24,12 @@ export function AuthLayout({
   footer,
 }: AuthLayoutProps) {
   return (
-    <main className="min-h-screen bg-[#f4f6fb] text-slate-900">
-      <div className="mx-auto grid min-h-screen w-full max-w-[1600px] lg:grid-cols-2">
-        <aside className="relative hidden overflow-hidden bg-gradient-to-br from-[#101a38] via-[#202a63] to-[#51408f] px-12 py-12 text-white lg:flex lg:flex-col lg:justify-between xl:px-16 xl:py-14">
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute -right-28 top-16 h-80 w-80 rounded-full border border-white/10"
-          />
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute -right-12 top-32 h-64 w-64 rounded-full border border-white/10"
-          />
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute -bottom-32 -left-20 h-96 w-96 rounded-full bg-indigo-300/10 blur-3xl"
-          />
+    <main className={`min-h-screen text-slate-900 ${variant === "signup" ? "bg-[#f7f8fc]" : "bg-[#f4f6fb]"}`}>
+      <div className={`mx-auto grid min-h-screen w-full max-w-[1600px] ${variant === "signup" ? "lg:grid-cols-[0.92fr_1.08fr]" : "lg:grid-cols-2"}`}>
+        <aside className={`relative hidden overflow-hidden px-10 py-10 text-white lg:flex lg:flex-col lg:justify-between xl:px-16 xl:py-14 ${variant === "signup" ? "bg-gradient-to-br from-[#101a32] via-[#19264b] to-[#303b70]" : "bg-gradient-to-br from-[#101a38] via-[#202a63] to-[#51408f]"}`}>
+
+
+
 
           <div className="relative">
             <div className="flex items-center gap-3">
@@ -94,8 +87,8 @@ export function AuthLayout({
           </p>
         </aside>
 
-        <section className="flex min-w-0 items-center justify-center px-5 py-9 sm:px-8 sm:py-12 lg:px-12 xl:px-16">
-          <div className="w-full max-w-[480px]">
+        <section className={`flex min-w-0 items-center justify-center px-5 py-9 sm:px-8 sm:py-12 ${variant === "signup" ? "lg:px-10 xl:px-14" : "lg:px-12 xl:px-16"}`}>
+          <div className={`w-full ${variant === "signup" ? "max-w-[520px]" : "max-w-[480px]"}`}>
             <div className="mb-8 flex items-center gap-3 lg:hidden">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#202a63] to-[#51408f] text-base font-semibold text-white">
                 D
@@ -110,12 +103,12 @@ export function AuthLayout({
               </div>
             </div>
 
-            <div className="rounded-[28px] border border-slate-200/80 bg-white p-6 shadow-[0_24px_80px_-40px_rgba(25,35,80,0.28)] sm:p-9">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-700">
+            <div className={`bg-white p-6 sm:p-9 ${variant === "signup" ? "rounded-2xl border border-slate-200 shadow-[0_18px_55px_-38px_rgba(15,23,42,0.38)] sm:rounded-3xl" : "rounded-[28px] border border-slate-200/80 shadow-[0_24px_80px_-40px_rgba(25,35,80,0.28)]"}`}>
+              <p className={`text-xs font-semibold uppercase tracking-[0.16em] ${variant === "signup" ? "text-indigo-800" : "text-indigo-700"}`}>
                 {eyebrow}
               </p>
 
-              <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 sm:text-[34px]">
+              <h1 className={`mt-3 text-3xl font-semibold tracking-tight text-slate-950 sm:text-[34px] ${variant === "signup" ? "leading-tight" : ""}`}>
                 {title}
               </h1>
 

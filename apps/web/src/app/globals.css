@@ -66,9 +66,9 @@ body {
 }
 
 /* Main navigation and top header use their dedicated settings. */
-.app-theme-scope aside {
+.app-theme-scope .app-organization-sidebar {
   background-color: var(--app-sidebar-background) !important;
-  background-image: var(--app-sidebar-image, none) !important;
+  background-image: linear-gradient(rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0.75)), var(--app-sidebar-image, none) !important;
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
@@ -77,14 +77,14 @@ body {
 }
 
 /* Neutral sidebar blocks follow the selected sidebar background. */
-.app-theme-scope aside > div,
-.app-theme-scope aside .bg-white,
-.app-theme-scope aside .bg-slate-50,
-.app-theme-scope aside .bg-slate-100 {
+.app-theme-scope .app-organization-sidebar > div,
+.app-theme-scope .app-organization-sidebar .bg-white,
+.app-theme-scope .app-organization-sidebar .bg-slate-50,
+.app-theme-scope .app-organization-sidebar .bg-slate-100 {
   background-color: color-mix(in srgb, var(--app-sidebar-background) 84%, transparent) !important;
 }
 
-.app-theme-scope aside > div,
+.app-theme-scope .app-organization-sidebar > div,
 .app-theme-scope header {
   border-color: var(--app-border);
 }
@@ -139,10 +139,10 @@ body {
 
 
 /* Dedicated organization sidebar text color. */
-.app-theme-scope aside .text-slate-900,
-.app-theme-scope aside .text-slate-800,
-.app-theme-scope aside .text-slate-700,
-.app-theme-scope aside .text-slate-600 {
+.app-theme-scope .app-organization-sidebar .text-slate-900,
+.app-theme-scope .app-organization-sidebar .text-slate-800,
+.app-theme-scope .app-organization-sidebar .text-slate-700,
+.app-theme-scope .app-organization-sidebar .text-slate-600 {
   color: var(--app-sidebar-text) !important;
 }
 
@@ -185,21 +185,21 @@ body {
 
 /* M29A-32K-AG SIDEBAR HOVER FIX */
 /* Active navigation follows the selected organization color. */
-.app-theme-scope aside .app-sidebar-nav-item-active {
+.app-theme-scope .app-organization-sidebar .app-sidebar-nav-item-active {
   background-color: var(--app-sidebar-active) !important;
   color: var(--app-sidebar-active-text, #FFFFFF) !important;
   box-shadow: 0 1px 2px color-mix(in srgb, var(--app-text) 8%, transparent);
 }
 
 /* Inactive navigation keeps the sidebar color and uses only a faint glow. */
-.app-theme-scope aside .app-sidebar-nav-item-inactive {
+.app-theme-scope .app-organization-sidebar .app-sidebar-nav-item-inactive {
   background-color: transparent !important;
   color: var(--app-sidebar-text) !important;
   box-shadow: 0 0 0 0 transparent;
   transition: box-shadow 160ms ease, color 160ms ease;
 }
 
-.app-theme-scope aside .app-sidebar-nav-item-inactive:hover {
+.app-theme-scope .app-organization-sidebar .app-sidebar-nav-item-inactive:hover {
   background-color: transparent !important;
   color: var(--app-sidebar-text) !important;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-sidebar-text) 9%, transparent),
@@ -207,19 +207,19 @@ body {
 }
 
 /* Upload follows the configured button colors, including its hover state. */
-.app-theme-scope aside button.app-sidebar-upload {
+.app-theme-scope .app-organization-sidebar button.app-sidebar-upload {
   background-color: var(--app-button-background) !important;
   color: var(--app-button-text) !important;
   transition: background-color 160ms ease, box-shadow 160ms ease;
 }
 
-.app-theme-scope aside button.app-sidebar-upload:hover {
+.app-theme-scope .app-organization-sidebar button.app-sidebar-upload:hover {
   background-color: var(--app-button-hover) !important;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--app-button-hover) 8%, transparent);
 }
 
 /* Sign out remains neutral; remove the bright slate hover fill. */
-.app-theme-scope aside button.hover\:bg-slate-50:hover {
+.app-theme-scope .app-organization-sidebar button.hover\:bg-slate-50:hover {
   background-color: transparent !important;
   color: var(--app-sidebar-text) !important;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--app-sidebar-text) 5%, transparent);
@@ -239,29 +239,30 @@ body {
 
 
 /* M29A-32M-06: Account card is independent of sidebar theme colors. */
-.app-theme-scope aside .app-sidebar-account-card {
+.app-theme-scope .app-organization-sidebar .app-sidebar-account-card {
   background-color: var(--app-surface, #FFFFFF) !important;
   color: var(--app-text, #000000) !important;
   border-color: var(--app-border, #E2E8F0) !important;
 }
 
-.app-theme-scope aside .app-sidebar-account-card .app-sidebar-account-name,
-.app-theme-scope aside .app-sidebar-account-card .app-sidebar-account-email,
-.app-theme-scope aside .app-sidebar-account-card .app-sidebar-account-role {
+.app-theme-scope .app-organization-sidebar .app-sidebar-account-card .app-sidebar-account-name,
+.app-theme-scope .app-organization-sidebar .app-sidebar-account-card .app-sidebar-account-email,
+.app-theme-scope .app-organization-sidebar .app-sidebar-account-card .app-sidebar-account-role {
   color: var(--app-text, #000000) !important;
 }
 
-.app-theme-scope aside .app-sidebar-account-card .app-sidebar-account-role {
+.app-theme-scope .app-organization-sidebar .app-sidebar-account-card .app-sidebar-account-role {
   background-color: var(--app-surface-raised, #F1F5F9) !important;
 }
 
-.app-theme-scope aside .app-sidebar-account-card button.app-sidebar-account-signout {
+.app-theme-scope .app-organization-sidebar .app-sidebar-account-card button.app-sidebar-account-signout {
   background-color: var(--app-surface, #FFFFFF) !important;
   color: var(--app-text, #000000) !important;
   border-color: var(--app-border, #E2E8F0) !important;
 }
 
-.app-theme-scope aside .app-sidebar-account-card button.app-sidebar-account-signout:hover {
+.app-theme-scope .app-organization-sidebar .app-sidebar-account-card button.app-sidebar-account-signout:hover {
   background-color: var(--app-surface-raised, #F1F5F9) !important;
   color: var(--app-text, #000000) !important;
 }
+

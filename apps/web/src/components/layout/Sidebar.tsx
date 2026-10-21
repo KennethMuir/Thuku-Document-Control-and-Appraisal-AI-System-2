@@ -28,7 +28,7 @@ export function Sidebar({
   loggingOut: boolean;
 }) {
   return (
-<aside className="hidden w-64 border-r border-slate-200 bg-white lg:flex lg:flex-col">
+<aside className="app-organization-sidebar hidden w-64 border-r border-slate-200 bg-white lg:flex lg:flex-col">
           <div className="border-b border-slate-200 px-6 py-6">
             <div className="flex items-center gap-3">
               <div

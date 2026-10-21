@@ -10,3 +10,14 @@ export const getDocumentDetails = async (
     }
   );
 };
+
+export const getAiDocumentDescription = async (
+  documentId: number
+): Promise<Response> => {
+  return apiFetch(
+    `/api/document-ai-description/${documentId}`,
+    {
+      method: "POST",
+    }
+  );
+};

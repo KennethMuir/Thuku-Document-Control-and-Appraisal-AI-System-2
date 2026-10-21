@@ -160,6 +160,7 @@ type ModalsProps = {
   uploading: boolean;
   uploadError: string;
   uploadedDocument: UploadedDocument | null;
+  extractedDocumentText: string;
   uploadedAppraisal: UploadedAppraisal | null;
   isCreatingNewMetadata: boolean;
 
@@ -295,6 +296,7 @@ export function Modals({
   uploading,
   uploadError,
   uploadedDocument,
+  extractedDocumentText,
   uploadedAppraisal,
   isCreatingNewMetadata,
 
@@ -1477,6 +1479,9 @@ export function Modals({
                       documentTypes={documentTypes}
                       uploadedAppraisal={
                         uploadedAppraisal
+                      }
+                      extractedDocumentText={
+                        extractedDocumentText
                       }
                       isCreatingNewMetadata={
                         isCreatingNewMetadata

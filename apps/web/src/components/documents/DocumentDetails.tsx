@@ -1,8 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import type { DocumentDetailsData } from "@/hooks/useDocumentDetails";
+import { getAiDocumentDescription } from "@/lib/api/documentDetails";
 
 type DocumentDetailsProps = {
+  documentId: number;
   details: DocumentDetailsData | null;
   loading: boolean;
   error: string | null;
@@ -228,10 +231,54 @@ const getClassificationPalette = (
 };
 
 export default function DocumentDetails({
+  documentId,
   details,
   loading,
   error,
 }: DocumentDetailsProps) {
+  const [aiDescription, setAiDescription] = useState<string | null>(null);
+  const [aiDescriptionLoading, setAiDescriptionLoading] = useState(false);
+  const [aiDescriptionError, setAiDescriptionError] = useState<string | null>(null);
+
+  const handleGetAiDescription = async () => {
+    if (
+      aiDescriptionLoading ||
+      !Number.isInteger(documentId) ||
+      documentId <= 0
+    ) {
+      return;
+    }
+
+    setAiDescriptionLoading(true);
+    setAiDescriptionError(null);
+    setAiDescription(null);
+
+    try {
+      const response = await getAiDocumentDescription(documentId);
+      const payload = await response.json().catch(() => null);
+
+      if (
+        !response.ok ||
+        payload?.success !== true ||
+        typeof payload?.data?.aiDescription !== "string" ||
+        !payload.data.aiDescription.trim()
+      ) {
+        throw new Error(
+          payload?.error || "Could not generate an AI description."
+        );
+      }
+
+      setAiDescription(payload.data.aiDescription);
+    } catch (requestError) {
+      setAiDescriptionError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not generate an AI description."
+      );
+    } finally {
+      setAiDescriptionLoading(false);
+    }
+  };
   if (loading) {
     return (
       <div className="border-t border-white/10 bg-slate-950/70 px-6 py-6">
@@ -349,7 +396,56 @@ export default function DocumentDetails({
           {readValue(details.document, "status")}
         </span>
       </div>
+      <section className="mb-4 rounded-xl border border-sky-400/20 bg-sky-500/[0.025] p-4">
+        <h5 className="mb-2 text-sm font-semibold text-sky-300">
+          Description
+        </h5>
+        <p className="whitespace-pre-wrap text-sm leading-6 text-slate-200">
+          {readValue(mainMetadata, "description")}
+        </p>
+      </section>
+      <section className="mb-6 rounded-xl border border-violet-400/20 bg-violet-500/[0.025] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h5 className="text-sm font-semibold text-violet-300">
+              AI-enhanced description
+            </h5>
+            <p className="mt-1 text-xs leading-5 text-slate-400">
+              Generate a separate, AI-enhanced explanation from the saved description.
+              This will not replace or modify your saved metadata.
+            </p>
+          </div>
 
+          <button
+            type="button"
+            onClick={handleGetAiDescription}
+            disabled={
+              aiDescriptionLoading ||
+              readValue(mainMetadata, "description") === "—"
+            }
+            className="rounded-lg border border-violet-400/30 bg-violet-500/10 px-4 py-2 text-sm font-medium text-violet-200 transition hover:bg-violet-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {aiDescriptionLoading ? "Generating…" : "Get AI Description"}
+          </button>
+        </div>
+
+        {aiDescriptionError && (
+          <p role="alert" className="mt-3 text-sm text-red-300">
+            {aiDescriptionError}
+          </p>
+        )}
+
+        {aiDescription && (
+          <div className="mt-4 rounded-lg border border-white/10 bg-slate-950/50 p-4">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-violet-300">
+              AI-generated result
+            </p>
+            <p className="whitespace-pre-wrap text-sm leading-6 text-slate-200">
+              {aiDescription}
+            </p>
+          </div>
+        )}
+      </section>
       <div className="space-y-6">
         <section className={documentFilePalette.section}>
           <h5
@@ -528,15 +624,6 @@ export default function DocumentDetails({
                 value={readValue(
                   mainMetadata,
                   "section"
-                )}
-                palette={mainMetadataPalette}
-              />
-
-              <DetailItem
-                label="Description"
-                value={readValue(
-                  mainMetadata,
-                  "description"
                 )}
                 palette={mainMetadataPalette}
               />

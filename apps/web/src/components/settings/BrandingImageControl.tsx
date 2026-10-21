@@ -159,15 +159,21 @@ export function BrandingImageControl({
   return (
     <section className="rounded-xl border border-slate-200 p-4">
       <div className="flex flex-col gap-4 sm:flex-row">
-        <div className="flex h-32 w-full shrink-0 items-center justify-center overflow-hidden rounded-lg border border-dashed border-slate-300 bg-slate-50 sm:w-44">
+        <div className="relative flex h-32 w-full shrink-0 items-center justify-center overflow-hidden rounded-lg border border-dashed border-slate-300 bg-slate-50 sm:w-44">
           {previewUrl ? (
             // The URL is a temporary object URL created from the authenticated image response.
             // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={previewUrl}
-              alt={`${title} preview`}
-              className="h-full w-full object-cover"
-            />
+            <>
+              <img
+                src={previewUrl}
+                alt={`${title} preview`}
+                className="h-full w-full object-cover"
+              />
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 bg-slate-950/75"
+              />
+            </>
           ) : (
             <span className="px-3 text-center text-xs text-slate-500">
               {hasImage ? "Loading image preview…" : "No image uploaded"}
@@ -217,3 +223,4 @@ export function BrandingImageControl({
     </section>
   );
 }
+

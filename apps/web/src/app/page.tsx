@@ -601,6 +601,7 @@ export default function Home() {
 
     uploadedDocument,
     setUploadedDocument,
+    extractedDocumentText,
 
     uploadedAppraisal,
     setUploadedAppraisal,
@@ -1712,6 +1713,9 @@ export default function Home() {
         }
         uploadedDocument={
           uploadedDocument
+        }
+        extractedDocumentText={
+          extractedDocumentText
         }
         uploadedAppraisal={
           uploadedAppraisal

@@ -18,6 +18,7 @@ import {
   resetUniversalMetadataDraft,
 } from "@/lib/metadata/universalMetadataDraft";
 import { persistUniversalMetadataValues } from "@/lib/metadata/universalMetadataValues";
+import { generateLocalDocumentDescription } from "@/lib/documentDescription";
 
 import type { DomainRelationshipSelection } from "@/components/metadata/DomainRelationshipSelector";
 
@@ -116,6 +117,10 @@ export function useDocumentAppraisal({
   ] = useState<UploadedDocument | null>(
     null
   );
+  const [
+    extractedDocumentText,
+    setExtractedDocumentText,
+  ] = useState("");
 
   const [
     uploadedAppraisal,
@@ -193,6 +198,7 @@ export function useDocumentAppraisal({
     setUploadToken(null);
     setUploadedDocument(null);
     setUploadedAppraisal(null);
+    setExtractedDocumentText("");
     setUploading(false);
     setUploadError("");
     setReviewingDecision(false);
@@ -273,6 +279,7 @@ export function useDocumentAppraisal({
     setUploadError("");
     setUploadedDocument(null);
     setUploadedAppraisal(null);
+    setExtractedDocumentText("");
     setUploadToken(null);
     setAppraisalDomainRelationships([]);
     setAppraisalAdditionalMetadata([]);
@@ -333,6 +340,7 @@ export function useDocumentAppraisal({
       setUploadError("");
       setUploadedDocument(null);
       setUploadedAppraisal(null);
+    setExtractedDocumentText("");
       setUploadToken(null);
       setReviewingDecision(false);
       setReviewError("");
@@ -403,6 +411,24 @@ export function useDocumentAppraisal({
           appraisal.metadata ??
           null;
 
+        const extractedText =
+          typeof data.extraction?.extracted_text === "string"
+            ? data.extraction.extracted_text
+            : "";
+
+        setExtractedDocumentText(extractedText);
+
+        const existingDescription =
+          metadata?.description ??
+          data.metadata?.description ??
+          "";
+
+        const contentSummary =
+          generateLocalDocumentDescription(extractedText);
+
+        const generatedDescription =
+          contentSummary || existingDescription;
+
         setAppraisalMetadataForm({
           referenceCode:
             metadata?.reference_code ??
@@ -455,10 +481,7 @@ export function useDocumentAppraisal({
             data.metadata?.section ??
             "",
 
-          description:
-            metadata?.description ??
-            data.metadata?.description ??
-            "",
+          description: generatedDescription,
         });
 
         setAppraisalCommittedAdditionalMetadata(
@@ -996,6 +1019,8 @@ export function useDocumentAppraisal({
     uploadedDocument,
     setUploadedDocument,
 
+    extractedDocumentText,
+
     uploadedAppraisal,
     setUploadedAppraisal,
 
@@ -1039,5 +1064,6 @@ export function useDocumentAppraisal({
     buildAppraisalMetadata,
   };
 }
+
 
 

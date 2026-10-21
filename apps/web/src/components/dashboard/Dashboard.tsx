@@ -164,7 +164,7 @@ export function Dashboard({
         color: dashboardSettings.theme === "DARK" ? "#F8FAFC" : dashboardSettings.textColor,
         ...(dashboardSettings.brandingImages?.DASHBOARD
           ? {
-              backgroundImage: `linear-gradient(rgba(255,255,255,${Math.min(0.75, Math.max(0, dashboardSettings.dashboardBackgroundFade ?? 0))}), rgba(255,255,255,${Math.min(0.75, Math.max(0, dashboardSettings.dashboardBackgroundFade ?? 0))})), var(--app-dashboard-image)`,
+              backgroundImage: "linear-gradient(rgba(0,0,0,0.75), rgba(0,0,0,0.75)), var(--app-dashboard-image)",
               backgroundSize: "cover",
               backgroundPosition: "center",
               backgroundRepeat: "no-repeat",
@@ -175,7 +175,7 @@ export function Dashboard({
 
                 {dashboardSettings.showWelcomePanel && (
 <div
-  className={`mb-8 rounded-2xl p-7 shadow-sm ${dashboardSettings.dashboardLayout === "COMPACT" ? "md:p-5" : ""}`}
+  className={`mb-8 rounded-2xl border p-7 shadow-xl ring-1 ring-black/5 ${dashboardSettings.dashboardLayout === "COMPACT" ? "md:p-5" : ""}`}
   style={{
     background: dashboardSettings.brandingImages?.INTRODUCTION
       ? undefined
@@ -184,12 +184,13 @@ export function Dashboard({
         : dashboardSettings.primaryColor,
     ...(dashboardSettings.brandingImages?.INTRODUCTION
       ? {
-          backgroundImage: "linear-gradient(rgba(0,0,0,0.12), rgba(0,0,0,0.12)), var(--app-introduction-image)",
+          backgroundImage: "linear-gradient(rgba(0,0,0,0.45), rgba(0,0,0,0.45)), var(--app-introduction-image)",
           backgroundSize: "cover",
           backgroundPosition: "center",
           backgroundRepeat: "no-repeat",
         }
       : {}),
+    borderColor: dashboardSettings.primaryColor,
     color: "#FFFFFF",
   }}
 >
@@ -522,6 +523,11 @@ export function Dashboard({
     </div>
   );
 }
+
+
+
+
+
 
 
 

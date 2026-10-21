@@ -245,7 +245,8 @@ export default function SignupPage() {
   if (signupComplete) {
     return (
       <AuthLayout
-        eyebrow="EMAIL VERIFICATION"
+        variant="signup"
+        eyebrow="ACCOUNT VERIFICATION"
         title="Check your company email"
         description="Your workspace has been created. Verify your company email before signing in."
         asideTitle="One final step."
@@ -344,11 +345,12 @@ export default function SignupPage() {
   }
   return (
     <AuthLayout
+      variant="signup"
       eyebrow="GET STARTED"
-      title="Create your workspace"
-      description="Set up your account to begin organizing, reviewing, and managing your documents."
-      asideTitle="Your documents. More clarity. Better control."
-      asideDescription="A central place to bring your records together and support your document review workflows."
+      title="Your organization. One intelligent workspace."
+      description="Create your organization workspace and bring greater structure, visibility, and control to your document operations."
+      asideTitle="Make every document work harder."
+      asideDescription="Bring records together, understand document content faster, and support consistent review and appraisal workflows from one secure workspace."
       features={[
         "A dedicated workspace for your organization",
         "AI-assisted document intelligence and appraisal workflows",
@@ -398,7 +400,7 @@ export default function SignupPage() {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-sm font-semibold text-slate-900">
-                Your 14-day free trial
+                Start with a 14-day trial
               </p>
               <span className="rounded-full border border-indigo-200 bg-white/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700">
                 Included

@@ -448,6 +448,8 @@ export function Documents({
               className="p-0"
             >
               <DocumentDetails
+                key={expandedDocumentId ?? "no-document"}
+                documentId={expandedDocumentId ?? 0}
                 details={
                   documentDetails
                 }

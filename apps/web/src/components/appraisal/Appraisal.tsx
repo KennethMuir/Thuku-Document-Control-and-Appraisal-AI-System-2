@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import type { UploadedAppraisal } from "@/types/appraisal";
+import { generateLocalDocumentDescription } from "@/lib/documentDescription";
 import type {
   Department,
   DocumentType,
@@ -46,6 +47,7 @@ type AppraisalProps = {
   departments: Department[];
   documentTypes: DocumentType[];
 
+  extractedDocumentText?: string;
   uploadedAppraisal: UploadedAppraisal;
   isCreatingNewMetadata: boolean;
 
@@ -140,6 +142,7 @@ export function Appraisal({
   departments,
   documentTypes,
 
+  extractedDocumentText = "",
   uploadedAppraisal,
   isCreatingNewMetadata,
 
@@ -647,6 +650,23 @@ export function Appraisal({
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 disabled:cursor-not-allowed disabled:bg-slate-100"
                 />
               </label>
+              <div className="mt-2 md:col-span-2">
+                <button
+                  type="button"
+                  disabled={appraisalFormDisabled || !extractedDocumentText.trim()}
+                  onClick={() => {
+                    const description = generateLocalDocumentDescription(extractedDocumentText, appraisalMetadataForm.description);
+                    if (!description) return;
+                    setAppraisalMetadataForm((current) => ({
+                      ...current,
+                      description,
+                    }));
+                  }}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Refresh local summary
+                </button>
+              </div>
             </div>
 
             {hasDomainRelationshipSupport && (

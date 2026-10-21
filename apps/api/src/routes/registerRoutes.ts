@@ -15,6 +15,7 @@ import { createOrganizationDashboardSettingsRouter } from "./organizationDashboa
 import { createMetadataRouter } from "./metadata.js";
 import { createDocumentsRouter } from "./documents.js";
 import { createDocumentDetailsRouter } from "./documentDetails.js";
+import { createDocumentAiDescriptionRouter } from "./documentAiDescription.js";
 import { createDocumentDeletionRouter } from "./documentDeletion.js";
 import { createDocumentsUploadRouter } from "./documentsUpload.js";
 import { createMetadataBulkRouter } from "./metadataBulk.js";
@@ -97,6 +98,11 @@ export function registerRoutes(
   app.use(
     "/api/document-details",
     createDocumentDetailsRouter(pool)
+  );
+
+  app.use(
+    "/api/document-ai-description",
+    createDocumentAiDescriptionRouter(pool)
   );
 
 

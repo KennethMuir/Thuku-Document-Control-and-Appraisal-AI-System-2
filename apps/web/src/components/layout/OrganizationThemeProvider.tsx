@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import type { CSSProperties, ReactNode } from "react";
 
 import { apiFetch } from "@/lib/api/client";
+import { getCurrentUserWithOrganizationRecovery } from "@/lib/api/organization-session";
 import { getOrganizationDashboardSettings } from "@/lib/api/organizationDashboardSettings";
 import { getSelectedOrganizationId } from "@/lib/organization/selection";
 import {
@@ -136,6 +138,7 @@ export function OrganizationThemeProvider({
 }: {
   children: ReactNode;
 }) {
+  const pathname = usePathname();
   const [settings, setSettings] = useState<OrganizationDashboardSettings>(
     DEFAULT_ORGANIZATION_DASHBOARD_SETTINGS,
   );
@@ -163,6 +166,11 @@ export function OrganizationThemeProvider({
   }, [brandingImageUrls]);
 
   useEffect(() => {
+    if (pathname === "/signup") {
+      setSettings(DEFAULT_ORGANIZATION_DASHBOARD_SETTINGS);
+      return;
+    }
+
     let cancelled = false;
     let requestNumber = 0;
 
@@ -225,11 +233,12 @@ export function OrganizationThemeProvider({
       window.removeEventListener("storage", onOrganizationChanged);
       media.removeEventListener("change", onSystemThemeChanged);
     };
-  }, []);
+  }, [pathname]);
 
   useEffect(() => {
     let cancelled = false;
     let requestNumber = 0;
+    let gateRequestNumber = 0;
 
     const slots: Array<keyof BrandingImageUrls> = [
       "SIDEBAR",
@@ -295,22 +304,72 @@ export function OrganizationThemeProvider({
           } else if (result.disposition === "clear" || clearFirst) {
             next[result.slot] = "";
           }
-          // Transient failures retain the existing image during normal refreshes.
         }
 
         return next;
       });
     };
 
+    const initializeImages = async (clearFirst: boolean) => {
+      const currentGateRequest = ++gateRequestNumber;
+      const isNeutralRoute =
+        pathname === "/signup" || pathname === "/verify-company-email";
+
+      if (isNeutralRoute) {
+        requestNumber += 1;
+        setBrandingImageUrls(EMPTY_BRANDING_IMAGE_URLS);
+        return;
+      }
+
+      if (pathname === "/login") {
+        requestNumber += 1;
+        setBrandingImageUrls(EMPTY_BRANDING_IMAGE_URLS);
+
+        try {
+          const response = await getCurrentUserWithOrganizationRecovery();
+
+          if (!response.ok) return;
+
+          const data = await response.json() as {
+            authenticated?: boolean;
+            organization?: { id?: number } | null;
+          };
+
+          const organizationId = data.organization?.id;
+
+          if (
+            cancelled ||
+            currentGateRequest !== gateRequestNumber ||
+            data.authenticated !== true ||
+            typeof organizationId !== "number" ||
+            !Number.isSafeInteger(organizationId) ||
+            organizationId <= 0
+          ) {
+            return;
+          }
+
+          await loadImages(true);
+        } catch {
+          if (!cancelled && currentGateRequest === gateRequestNumber) {
+            setBrandingImageUrls(EMPTY_BRANDING_IMAGE_URLS);
+          }
+        }
+
+        return;
+      }
+
+      await loadImages(clearFirst);
+    };
+
     const refreshImages = () => {
-      void loadImages(false);
+      void initializeImages(false);
     };
 
     const refreshOrganizationImages = () => {
-      void loadImages(true);
+      void initializeImages(true);
     };
 
-    void loadImages(true);
+    void initializeImages(true);
 
     window.addEventListener("organization-dashboard-settings-updated", refreshImages);
     window.addEventListener("organization-selection-changed", refreshOrganizationImages);
@@ -319,6 +378,7 @@ export function OrganizationThemeProvider({
     return () => {
       cancelled = true;
       requestNumber += 1;
+      gateRequestNumber += 1;
 
       window.removeEventListener("organization-dashboard-settings-updated", refreshImages);
       window.removeEventListener("organization-selection-changed", refreshOrganizationImages);
@@ -328,7 +388,7 @@ export function OrganizationThemeProvider({
         if (url) URL.revokeObjectURL(url);
       });
     };
-  }, []);
+  }, [pathname]);
 
   const selectedOrganizationId = getSelectedOrganizationId();
   const dark = settings.theme === "DARK" ||
