@@ -294,9 +294,9 @@ export function Dashboard({
                           )
                             ? "border-slate-900 bg-white ring-1 ring-slate-900"
                             : card.key === "documents"
-                              ? "border-slate-200 bg-blue-50/70 hover:border-slate-300"
+                              ? "bg-blue-50/70"
                               : card.key === "metadata"
-                                ? "border-slate-200 bg-violet-50/70 hover:border-slate-300"
+                                ? "bg-violet-50/70"
                                 : card.key === "awaiting"
                                   ? "border-amber-100 bg-amber-50/70 hover:border-amber-200"
                                   : card.key === "review"
@@ -305,7 +305,7 @@ export function Dashboard({
                                       ? "border-emerald-100 bg-emerald-50/70 hover:border-emerald-200"
                                       : "border-rose-100 bg-rose-50/70 hover:border-rose-200"
                         }`}
-                      >
+                       style={{ borderColor: `color-mix(in srgb, ${dashboardSettings.primaryColor} 35%, transparent)` }}>
                         <div className="flex items-start justify-between">
                           <div>
                             <p className="text-sm font-medium text-slate-500">
@@ -368,7 +368,7 @@ export function Dashboard({
                 </div>
 
                 <div className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
-                  <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+                  <section className="rounded-2xl border bg-white shadow-sm" style={{ borderColor: `${dashboardSettings.primaryColor}55` }}>
                     <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
                       <div>
                         <h3 className="font-bold">
@@ -410,7 +410,7 @@ export function Dashboard({
                                   department
                                 )
                               }
-                              className="group rounded-xl border border-slate-200 p-4 text-left transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2"
+                              className="group rounded-xl border p-4 text-left transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2" style={{ borderColor: `${dashboardSettings.primaryColor}55` }}
                             >
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
@@ -452,7 +452,7 @@ export function Dashboard({
                     </div>
                   </section>
 
-                  <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+                  <section className="rounded-2xl border bg-white shadow-sm" style={{ borderColor: `${dashboardSettings.primaryColor}55` }}>
                     <div className="border-b border-slate-200 px-6 py-5">
                       <h3 className="font-bold">
                         Appraisal Workflow
@@ -491,7 +491,7 @@ export function Dashboard({
                   </section>
                 </div>
 
-                <div className="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-6">
+                <div className="mt-6 rounded-2xl border border-dashed bg-white p-6" style={{ borderColor: `${dashboardSettings.primaryColor}55` }}>
                   <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
                     <div>
                       <p className="text-sm font-bold">
@@ -523,13 +523,3 @@ export function Dashboard({
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-

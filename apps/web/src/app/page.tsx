@@ -1282,7 +1282,7 @@ export default function Home() {
             }
           />
 
-          <div className="px-6 py-8 lg:px-10">
+          <div className="px-3 py-8 lg:px-4">
             {activePage ===
               "Dashboard" && (
               <Dashboard
