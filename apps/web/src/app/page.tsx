@@ -415,6 +415,9 @@ export default function Home() {
     searchResults,
     searchLoading,
     searchError,
+    contentSearchResults,
+    contentSearchLoading,
+    contentSearchError,
     searchTerm,
     setSearchTerm,
   } = useDocumentSearch({
@@ -1459,6 +1462,15 @@ export default function Home() {
                 searchError={
                   searchError
                 }
+                contentSearchResults={
+                  contentSearchResults
+                }
+                contentSearchLoading={
+                  contentSearchLoading
+                }
+                contentSearchError={
+                  contentSearchError
+                }
                 searchResults={
                   searchResults
                 }
@@ -1808,7 +1820,3 @@ export default function Home() {
     </main>
   );
 }
-
-
-
-

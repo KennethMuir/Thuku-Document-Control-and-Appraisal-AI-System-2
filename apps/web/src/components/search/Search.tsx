@@ -6,10 +6,14 @@ import type { Department } from "@/types/departments";
 import type { UploadedDocument } from "@/types/documents";
 import type { MetadataRecord } from "@/types/metadata";
 import type { SearchResult } from "@/types/search";
+import type { ContentSearchResult } from "@/types/search";
 
 type SearchProps = {
   searchLoading: boolean;
   searchError: string;
+  contentSearchResults: ContentSearchResult[];
+  contentSearchLoading: boolean;
+  contentSearchError: string;
   searchResults: SearchResult[];
   searchTerm: string;
   setSearchTerm: Dispatch<SetStateAction<string>>;
@@ -27,6 +31,9 @@ type SearchProps = {
 export function Search({
   searchLoading,
   searchError,
+  contentSearchResults,
+  contentSearchLoading,
+  contentSearchError,
   searchResults,
   searchTerm,
   setSearchTerm,
@@ -380,7 +387,79 @@ export function Search({
                         </div>
                       )}
                   </div>
-                </section>
+
+                <section className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                  <div className="border-b border-slate-200 px-6 py-5">
+                    <h3 className="font-bold">Document Content Matches</h3>
+                    <p role="status" aria-live="polite" className="mt-1 text-sm text-slate-500">
+                      {contentSearchLoading
+                        ? "Searching document content..."
+                        : contentSearchError
+                          ? "Document content search is unavailable."
+                          : searchTerm.trim()
+                            ? `${contentSearchResults.length} matching document${contentSearchResults.length === 1 ? "" : "s"}`
+                            : "Enter a search term to search inside document text."}
+                    </p>
+                    {contentSearchError && (
+                      <p role="alert" className="mt-2 text-sm text-red-600">
+                        {contentSearchError}
+                      </p>
+                    )}
+                  </div>
+
+                  {contentSearchLoading && searchTerm.trim() && (
+                    <p className="px-6 py-5 text-sm text-slate-500">
+                      Searching extracted text in your organization’s documents...
+                    </p>
+                  )}
+
+                  {!contentSearchLoading &&
+                    !contentSearchError &&
+                    searchTerm.trim() &&
+                    contentSearchResults.length === 0 && (
+                      <p className="px-6 py-8 text-sm text-slate-500">
+                        No document content matches this search.
+                      </p>
+                    )}
+
+                  {!contentSearchLoading &&
+                    !contentSearchError &&
+                    contentSearchResults.map((result) => (
+                      <div
+                        key={`${result.document_id}-${result.match_position}`}
+                        className="border-b border-slate-100 p-6 last:border-b-0"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => void handleOpenDocument(result.document_id)}
+                          className="w-full rounded-lg text-left focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2"
+                        >
+                          <div className="flex flex-wrap items-center gap-3">
+                            <span className="font-bold text-blue-700">
+                              {result.document_code || "Document"}
+                            </span>
+                            <StatusBadge status={result.document_status} />
+                            {result.reference_code && (
+                              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                                Ref: {result.reference_code}
+                              </span>
+                            )}
+                          </div>
+                          <h4 className="mt-2 break-words font-semibold text-slate-800">
+                            {result.document_title || result.filename || "Untitled document"}
+                          </h4>
+                          {result.filename && result.document_title && (
+                            <p className="mt-1 break-words text-xs text-slate-500">
+                              {result.filename}
+                            </p>
+                          )}
+                        </button>
+                        <p className="mt-3 rounded-lg bg-slate-50 p-4 text-sm leading-6 text-slate-600">
+                          {result.excerpt}
+                        </p>
+                      </div>
+                    ))}
+                </section>                </section>
     </>
   );
 }

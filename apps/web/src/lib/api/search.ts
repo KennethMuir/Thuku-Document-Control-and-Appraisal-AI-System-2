@@ -10,3 +10,13 @@ export const searchDocuments = async (
     }
   );
 };
+export const searchDocumentContent = async (
+  query: string
+): Promise<Response> => {
+  return apiFetch(
+    `/api/search/content?q=${encodeURIComponent(query)}`,
+    {
+      method: "GET",
+    }
+  );
+};

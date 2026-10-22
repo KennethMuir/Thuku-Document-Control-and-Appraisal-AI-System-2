@@ -20,6 +20,7 @@ let noMembershipToken: string | undefined;
 
 const sessionIds: string[] = [];
 const documentIds: string[] = [];
+const metadataIds: string[] = [];
 const checks: string[] = [];
 
 function checkStatus(actual: number, expected: number, label: string) {
@@ -300,6 +301,89 @@ async function main() {
     checks.push("50-result limit respected with 51 matching tenant documents");
     checks.push("Foreign-tenant content excluded from search results");
 
+    // Verify a saved metadata description is searchable without matching extracted text.
+    const descriptionPhrase = `unique description topic ${suffix}`;
+    const metadataResult = await pool.query(
+      `INSERT INTO metadata_records (
+         reference_code, title, description, organization_id
+       )
+       VALUES ($1, $2, $3, $4)
+       RETURNING id`,
+      [
+        `M34-DESC-${suffix}`,
+        `Description-only fixture ${suffix}`,
+        `This record concerns ${descriptionPhrase} for regression testing.`,
+        organizationId,
+      ],
+    );
+    const metadataId = String(metadataResult.rows[0].id);
+    metadataIds.push(metadataId);
+
+    const descriptionDocumentId = await createTestDocument(
+      `${ownCodePrefix}DESCRIPTION`,
+      `m34-description-${suffix}.txt`,
+      ownerUserId,
+      organizationId,
+      `Extracted content unrelated to the saved description. Fixture ${suffix}.`,
+    );
+
+    await pool.query(
+      `UPDATE documents
+       SET metadata_record_id = $1
+       WHERE id = $2 AND organization_id = $3`,
+      [metadataId, descriptionDocumentId, organizationId],
+    );
+
+    response = await requestSearch({
+      token: ownerToken,
+      query: descriptionPhrase,
+      organizationId,
+    });
+    checkStatus(response.status, 200, "Saved-description-only search succeeds");
+
+    const descriptionBody = await response.json();
+    const descriptionMatch = descriptionBody.results.find(
+      (result: { document_id: string }) =>
+        result.document_id === descriptionDocumentId,
+    );
+
+    assert.ok(descriptionMatch, "Document matching only through its saved description must be returned");
+    assert.equal(descriptionMatch.metadata_record_id, metadataId);
+    assert.ok(
+      descriptionMatch.excerpt.toLowerCase().includes(descriptionPhrase.toLowerCase()),
+      "Result excerpt must contain the matching saved-description phrase",
+    );
+    checks.push("Saved description searchable independently of extracted text");
+    checks.push("Description-only result links the correct metadata record and excerpt");
+
+    // Contextual token matches must return an excerpt from a field that matches.
+    const contextualPhrase = `budget compliance ${suffix}`;
+    const contextualDocumentId = await createTestDocument(
+      `${ownCodePrefix}CONTEXTUAL`,
+      `m34-contextual-${suffix}.txt`,
+      ownerUserId,
+      organizationId,
+      `The annual budget was reviewed separately. Compliance checks followed during the final audit. Fixture ${suffix}.`,
+    );
+
+    response = await requestSearch({
+      token: ownerToken,
+      query: contextualPhrase,
+      organizationId,
+    });
+    checkStatus(response.status, 200, "Contextual token search succeeds");
+
+    const contextualBody = await response.json();
+    const contextualMatch = contextualBody.results.find(
+      (result: { document_id: string }) =>
+        result.document_id === contextualDocumentId,
+    );
+
+    assert.ok(contextualMatch, "Document containing both contextual query tokens must be returned");
+    assert.match(contextualMatch.excerpt.toLowerCase(), /budget/);
+    assert.match(contextualMatch.excerpt.toLowerCase(), /compliance/);
+    checks.push("Contextual match excerpt contains both query terms");
+
     // No-match behavior should return a successful empty result set.
     response = await requestSearch({
       token: ownerToken,
@@ -330,6 +414,13 @@ async function main() {
         await pool.query(
           `DELETE FROM documents WHERE id = ANY($1::bigint[])`,
           [documentIds],
+        );
+      }
+
+      if (metadataIds.length) {
+        await pool.query(
+          `DELETE FROM metadata_records WHERE id = ANY($1::bigint[])`,
+          [metadataIds],
         );
       }
 

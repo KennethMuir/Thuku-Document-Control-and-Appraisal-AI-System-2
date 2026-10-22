@@ -7,6 +7,7 @@ import {
 
 import {
   searchDocuments,
+  searchDocumentContent,
 } from "@/lib/api/search";
 
 import type {
@@ -15,6 +16,7 @@ import type {
 
 import type {
   SearchResult,
+  ContentSearchResult,
 } from "@/types/search";
 
 type UseDocumentSearchOptions = {
@@ -29,9 +31,7 @@ export function useDocumentSearch({
   const [
     searchResults,
     setSearchResults,
-  ] = useState<SearchResult[]>(
-    []
-  );
+  ] = useState<SearchResult[]>([]);
 
   const [
     searchLoading,
@@ -41,6 +41,21 @@ export function useDocumentSearch({
   const [
     searchError,
     setSearchError,
+  ] = useState("");
+
+  const [
+    contentSearchResults,
+    setContentSearchResults,
+  ] = useState<ContentSearchResult[]>([]);
+
+  const [
+    contentSearchLoading,
+    setContentSearchLoading,
+  ] = useState(false);
+
+  const [
+    contentSearchError,
+    setContentSearchError,
   ] = useState("");
 
   const [
@@ -60,8 +75,7 @@ export function useDocumentSearch({
       return;
     }
 
-    const query =
-      searchTerm.trim();
+    const query = searchTerm.trim();
 
     if (!query) {
       setSearchResults([]);
@@ -72,90 +86,137 @@ export function useDocumentSearch({
 
     let cancelled = false;
 
-    const timer =
-      window.setTimeout(
-        async () => {
-          try {
-            setSearchLoading(true);
-            setSearchError("");
+    const timer = window.setTimeout(
+      async () => {
+        try {
+          setSearchLoading(true);
+          setSearchError("");
 
-            const response =
-              await searchDocuments(
-                query
-              );
+          const response = await searchDocuments(query);
+          const data = await response.json();
 
-            const data =
-              await response.json();
-
-            if (cancelled) {
-              return;
-            }
-
-            if (
-              !response.ok ||
-              !data.success
-            ) {
-              throw new Error(
-                data.error ||
-                  "Unable to search records."
-              );
-            }
-
-            setSearchResults(
-              Array.isArray(
-                data.results
-              )
-                ? data.results
-                : []
-            );
-          } catch (error) {
-            if (cancelled) {
-              return;
-            }
-
-            console.error(
-              "Search request failed:",
-              error
-            );
-
-            setSearchResults([]);
-
-            setSearchError(
-              error instanceof Error
-                ? error.message
-                : "Unable to search records."
-            );
-          } finally {
-            if (!cancelled) {
-              setSearchLoading(
-                false
-              );
-            }
+          if (cancelled) {
+            return;
           }
-        },
-        300
-      );
+
+          if (!response.ok || !data.success) {
+            throw new Error(
+              data.error || "Unable to search records."
+            );
+          }
+
+          setSearchResults(
+            Array.isArray(data.results) ? data.results : []
+          );
+        } catch (error) {
+          if (cancelled) {
+            return;
+          }
+
+          console.error("Search request failed:", error);
+          setSearchResults([]);
+          setSearchError(
+            error instanceof Error
+              ? error.message
+              : "Unable to search records."
+          );
+        } finally {
+          if (!cancelled) {
+            setSearchLoading(false);
+          }
+        }
+      },
+      300
+    );
 
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [
-    searchTerm,
-    authLoading,
-    authUser,
-  ]);
+  }, [searchTerm, authLoading, authUser]);
+
+  useEffect(() => {
+    if (authLoading) {
+      return;
+    }
+
+    if (!authUser) {
+      setContentSearchResults([]);
+      setContentSearchLoading(false);
+      setContentSearchError("");
+      return;
+    }
+
+    const query = searchTerm.trim();
+
+    if (!query) {
+      setContentSearchResults([]);
+      setContentSearchLoading(false);
+      setContentSearchError("");
+      return;
+    }
+
+    let cancelled = false;
+
+    const timer = window.setTimeout(
+      async () => {
+        try {
+          setContentSearchLoading(true);
+          setContentSearchError("");
+
+          const response = await searchDocumentContent(query);
+          const data = await response.json();
+
+          if (cancelled) {
+            return;
+          }
+
+          if (!response.ok || !data.success) {
+            throw new Error(
+              data.error || "Unable to search document content."
+            );
+          }
+
+          setContentSearchResults(
+            Array.isArray(data.results) ? data.results : []
+          );
+        } catch (error) {
+          if (cancelled) {
+            return;
+          }
+
+          console.error("Document content search failed:", error);
+          setContentSearchResults([]);
+          setContentSearchError(
+            error instanceof Error
+              ? error.message
+              : "Unable to search document content."
+          );
+        } finally {
+          if (!cancelled) {
+            setContentSearchLoading(false);
+          }
+        }
+      },
+      300
+    );
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [searchTerm, authLoading, authUser]);
 
   return {
     searchResults,
     setSearchResults,
-
     searchLoading,
     setSearchLoading,
-
     searchError,
     setSearchError,
-
+    contentSearchResults,
+    contentSearchLoading,
+    contentSearchError,
     searchTerm,
     setSearchTerm,
   };

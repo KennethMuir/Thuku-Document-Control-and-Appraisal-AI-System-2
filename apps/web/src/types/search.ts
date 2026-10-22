@@ -17,3 +17,22 @@ export type SearchResult = {
   document_type_name: string | null;
   linked_documents: SearchResultDocument[];
 };
+export type ContentSearchResult = {
+  document_id: string;
+  document_code: string | null;
+  filename: string | null;
+  document_title: string | null;
+  document_status: string;
+  metadata_record_id: string | null;
+  reference_code: string | null;
+  excerpt: string;
+  match_position: number;
+};
+
+export type ContentSearchResponse = {
+  success: boolean;
+  query: string;
+  results: ContentSearchResult[];
+  total: number;
+  limit: number;
+};
