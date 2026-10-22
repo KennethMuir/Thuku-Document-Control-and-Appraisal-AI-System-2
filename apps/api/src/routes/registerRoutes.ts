@@ -9,6 +9,7 @@ import { createUsersRouter } from "./users.js";
 import { createDepartmentsRouter } from "./departments.js";
 import { createDocumentTypesRouter } from "./documentTypes.js";
 import { createSearchRouter } from "./search.js";
+import { createContentSearchRouter } from "./contentSearch.js";
 import { createHealthRouter } from "./health.js";
 import { createDashboardRouter } from "./dashboard.js";
 import { createOrganizationDashboardSettingsRouter } from "./organizationDashboardSettings.js";
@@ -62,6 +63,11 @@ export function registerRoutes(
   app.use(
     "/api/search",
     createSearchRouter(pool)
+  );
+
+  app.use(
+    "/api/search/content",
+    createContentSearchRouter(pool)
   );
 
   app.use(
